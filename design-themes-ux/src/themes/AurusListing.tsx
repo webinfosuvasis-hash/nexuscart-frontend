@@ -1,38 +1,17 @@
-import React, { useState, useMemo, useRef } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
 import { useRegistry, OCCASIONS, OccasionKey } from '@/context/RegistryContext';
-import { PRODUCTS, THEME_META } from '@/data/products';
+import { PRODUCTS } from '@/data/products';
 import {
-  Search, Heart, ShoppingBag, User, ChevronDown,
-  Store, X, Star, SlidersHorizontal, Gift,
+  ChevronDown, X, Star, SlidersHorizontal, Gift,
 } from 'lucide-react';
 import CartDrawer from '@/components/CartDrawer';
 // import ThemeSwitcher from '@/components/ThemeSwitcher';
+import AurusHeader from './aurus/AurusHeader';
+import { UI, SERIF } from './aurus/constants';
 
-const UI   = { fontFamily: 'system-ui, -apple-system, sans-serif' };
-const SERIF= { fontFamily: "'Cormorant Garamond', Georgia, serif" };
-
-/* ─── Header constants ─────────────── */
-const NAV_ITEMS = [
-  'Sarees','Kurtas & Sets','Blouses','Lehenga','Dupattas',
-  'Co-ord Sets','Festive Edit','Collections','New Arrivals','Gifting','Trending',
-];
-const NAV_LINKS: Record<string, string> = {
-  'Sarees':        '/jewellery/sarees',
-  'Kurtas & Sets': '/jewellery/kurtas',
-  'Blouses':       '/jewellery/blouses',
-  'Lehenga':       '/jewellery/lehenga',
-  'Dupattas':      '/jewellery/dupattas',
-  'Co-ord Sets':   '/jewellery/coord-sets',
-  'Festive Edit':  '/jewellery/festive',
-  'Collections':   '/jewellery/collections',
-  'New Arrivals':  '/jewellery/new-arrivals',
-  'Gifting':       '/jewellery/gifting',
-  'Trending':      '/jewellery/trending',
-};
-
-/* ─── Filter data ──────────────────── */
+/* â”€â”€â”€ Filter data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const FILTER_SECTIONS = [
   {
     id: 'ringSize', label: 'Ring size', type: 'check',
@@ -48,12 +27,12 @@ const FILTER_SECTIONS = [
   {
     id: 'price', label: 'Price', type: 'check',
     options: [
-      { v:'5001-10000',  l:'₹5,001 – ₹10,000',  c:9  },
-      { v:'10001-15000', l:'₹10,001 – ₹15,000', c:95 },
-      { v:'15001-20000', l:'₹15,001 – ₹20,000', c:8  },
-      { v:'20001-30000', l:'₹20,001 – ₹30,000', c:4  },
-      { v:'30001-40000', l:'₹30,001 – ₹40,000', c:3  },
-      { v:'40001-50000', l:'₹40,001 – ₹50,000', c:1  },
+      { v:'5001-10000',  l:'â‚¹5,001 â€“ â‚¹10,000',  c:9  },
+      { v:'10001-15000', l:'â‚¹10,001 â€“ â‚¹15,000', c:95 },
+      { v:'15001-20000', l:'â‚¹15,001 â€“ â‚¹20,000', c:8  },
+      { v:'20001-30000', l:'â‚¹20,001 â€“ â‚¹30,000', c:4  },
+      { v:'30001-40000', l:'â‚¹30,001 â€“ â‚¹40,000', c:3  },
+      { v:'40001-50000', l:'â‚¹40,001 â€“ â‚¹50,000', c:1  },
     ],
   },
   {
@@ -74,10 +53,10 @@ const FILTER_SECTIONS = [
   {
     id: 'weight', label: 'Weight Ranges', type: 'check',
     options: [
-      { v:'0-2g',   l:'0 – 2 g',  c:119 },
-      { v:'2-5g',   l:'2 – 5 g',  c:45  },
-      { v:'5-10g',  l:'5 – 10 g', c:12  },
-      { v:'10-20g', l:'10 – 20 g',c:5   },
+      { v:'0-2g',   l:'0 â€“ 2 g',  c:119 },
+      { v:'2-5g',   l:'2 â€“ 5 g',  c:45  },
+      { v:'5-10g',  l:'5 â€“ 10 g', c:12  },
+      { v:'10-20g', l:'10 â€“ 20 g',c:5   },
     ],
   },
   {
@@ -108,7 +87,7 @@ const CHIPS = ['All','Fast Delivery','Latest Designs','Store Pickup','Try at Hom
 const PINK = '#E91E8C';
 const PURPLE_COUNT = '#7B59C0';
 
-/* ─── Mini star rating ─────────────── */
+/* â”€â”€â”€ Mini star rating â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const MiniStars: React.FC<{ r: number }> = ({ r }) => (
   <span className="inline-flex gap-0.5">
     {[1,2,3,4,5].map(i => (
@@ -117,7 +96,7 @@ const MiniStars: React.FC<{ r: number }> = ({ r }) => (
   </span>
 );
 
-/* ─── Filter Section ─────────────────────────────────────────────────── */
+/* â”€â”€â”€ Filter Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const FilterSection: React.FC<{
   section: typeof FILTER_SECTIONS[0];
   selected: string[];
@@ -183,7 +162,7 @@ const FilterSection: React.FC<{
                   )}
                 </div>
 
-                {/* Label — lighter weight */}
+                {/* Label â€” lighter weight */}
                 <span style={{ fontSize: 13, color: '#444444', flex: 1, lineHeight: 1.5, ...UI }}>
                   {o.l}
                 </span>
@@ -205,7 +184,7 @@ const FilterSection: React.FC<{
                 padding: 0, display: 'flex', alignItems: 'center', gap: 4, ...UI,
               }}
             >
-              <span style={{ fontSize: 13 }}>↓</span> {remaining} More
+              <span style={{ fontSize: 13 }}>â†“</span> {remaining} More
             </button>
           )}
           {showAll && (
@@ -217,7 +196,7 @@ const FilterSection: React.FC<{
                 padding: 0, display: 'flex', alignItems: 'center', gap: 4, ...UI,
               }}
             >
-              <span style={{ fontSize: 13 }}>↑</span> Show Less
+              <span style={{ fontSize: 13 }}>â†‘</span> Show Less
             </button>
           )}
         </div>
@@ -226,7 +205,7 @@ const FilterSection: React.FC<{
   );
 };
 
-/* ─── Promotional Tiles ─────────────────────────────────────────────── */
+/* â”€â”€â”€ Promotional Tiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const PromoTile: React.FC<{ variant: 'latest' | 'try-home' }> = ({ variant }) => {
   if (variant === 'latest') {
     return (
@@ -290,9 +269,9 @@ const PromoTile: React.FC<{ variant: 'latest' | 'try-home' }> = ({ variant }) =>
   );
 };
 
-/* ═══════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN COMPONENT
-═══════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const AurusListing: React.FC = () => {
   const { addToCart, toggleWishlist, wishlist, cartCount, setCartOpen } = useStore();
   const { addToRegistry, isInRegistry } = useRegistry();
@@ -300,21 +279,8 @@ const AurusListing: React.FC = () => {
   const products = PRODUCTS.aurus;
   const meta = THEME_META.aurus;
 
-  /* ── Header state ── */
+  /* â”€â”€ Search + Filter / sort state â”€â”€ */
   const [searchQuery, setSearchQuery] = useState('');
-  const [megaMenu, setMegaMenu] = useState<string | null>(null);
-  const [activeNav, setActiveNav] = useState('Sarees');
-  const closeTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-
-  const openMegaMenu = (n: string) => {
-    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-    setMegaMenu(n);
-  };
-  const scheduleMegaMenuClose = () => {
-    closeTimerRef.current = setTimeout(() => setMegaMenu(null), 200);
-  };
-
-  /* ── Filter / sort state ── */
   const [sortBy, setSortBy]         = useState('Featured');
   const [activeChip, setActiveChip] = useState('All');
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({});
@@ -334,7 +300,7 @@ const AurusListing: React.FC = () => {
   const totalActiveFilters = Object.values(selectedFilters).reduce((s,a) => s + a.length, 0);
   const clearAll = () => setSelectedFilters({});
 
-  /* ── Build product list ── */
+  /* â”€â”€ Build product list â”€â”€ */
   const allProducts = useMemo(() => {
     const arr: typeof products = [];
     for (let i = 0; i < 5; i++) products.forEach(p => arr.push({ ...p }));
@@ -343,21 +309,29 @@ const AurusListing: React.FC = () => {
 
   const displayProducts = useMemo(() => {
     let arr = [...allProducts];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      arr = arr.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        p.desc.toLowerCase().includes(q)
+      );
+    }
     if (activeChip === 'Try at Home') arr = arr.filter(p => p.tryAtHome);
     if (sortBy === 'Price: Low to High') arr.sort((a,b) => a.price - b.price);
     else if (sortBy === 'Price: High to Low') arr.sort((a,b) => b.price - a.price);
     else if (sortBy === 'Customer Rating') arr.sort((a,b) => b.rating - a.rating);
     return arr;
-  }, [allProducts, sortBy, activeChip]);
+  }, [allProducts, sortBy, activeChip, searchQuery]);
 
-  /* ── Inject promo tiles into the flat item list ──────────────────────
+  /* â”€â”€ Inject promo tiles into the flat item list â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
      4-column grid layout:
        Row 1: P1  P2  P3  P4
        Row 2: [PromoTile-latest col-span-2]  P5  P6
        Row 3: P7  P8  P9  P10
        Row 4: P11 P12 P13 P14
        Row 5: [PromoTile-try-home col-span-2]  P15  P16
-  ─────────────────────────────────────────────────────────────────────── */
+  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   type GridItem =
     | { kind: 'product'; p: typeof displayProducts[0]; idx: number }
     | { kind: 'promo';   variant: 'latest' | 'try-home'; id: string };
@@ -366,8 +340,8 @@ const AurusListing: React.FC = () => {
     const result: GridItem[] = [];
     displayProducts.forEach((p, i) => {
       result.push({ kind: 'product', p, idx: i });
-      /* Inject after 4th product → promo spans cols 1-2, P5+P6 fill cols 3-4 in row 2
-         Inject after 14th product → same pattern in row 5 */
+      /* Inject after 4th product â†’ promo spans cols 1-2, P5+P6 fill cols 3-4 in row 2
+         Inject after 14th product â†’ same pattern in row 5 */
       if (i === 3)  result.push({ kind: 'promo', variant: 'latest',   id: 'promo-latest'   });
       if (i === 13) result.push({ kind: 'promo', variant: 'try-home', id: 'promo-try-home'  });
     });
@@ -379,15 +353,14 @@ const AurusListing: React.FC = () => {
   return (
     <div className="min-h-screen bg-white" style={UI}>
 
-      {/* ── Announcement bar ── */}
-      <div className="bg-purple-950 text-purple-100 text-center text-[11px] py-2 tracking-wide">
-        <span className="font-semibold text-white">Flat 100% Off on Making Charges</span>
-        <span className="mx-3 text-purple-400">•</span>Free Shipping on Orders Above ₹1,999
-        <span className="mx-3 text-purple-400">•</span>15-Day Easy Exchange &amp; Returns
-      </div>
+      <AurusHeader
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onSearchSubmit={q => setSearchQuery(q)}
+      />
 
-      {/* ── Sticky header ── */}
-      <header className="sticky top-0 z-50 relative" style={{ boxShadow:'0 2px 8px rgba(0,0,0,0.10)' }}>
+      {/* â”€â”€ OLD HEADER (replaced by AurusHeader) â”€â”€ */}
+      {false && <header className="sticky top-0 z-50 relative" style={{ boxShadow:'0 2px 8px rgba(0,0,0,0.10)' }}>
         {/* Row 1 */}
         <div className="bg-white border-b border-gray-100">
           <div className="max-w-[1400px] mx-auto px-4 h-[50px] flex items-center gap-3">
@@ -411,7 +384,7 @@ const AurusListing: React.FC = () => {
             <div className="hidden md:flex items-center gap-2 flex-shrink-0">
               <button className="relative flex items-center gap-1.5 border border-pink-500 text-pink-600 rounded-full px-3 h-[30px] text-[11px] font-semibold hover:bg-pink-50 transition-colors whitespace-nowrap">
                 <span className="absolute -top-[10px] left-2.5 bg-red-600 text-white text-[7px] font-black px-1.5 py-px rounded-sm uppercase">NEW</span>
-                🎁 Treasure Chest
+                ðŸŽ Treasure Chest
               </button>
               <button className="flex items-center gap-1.5 border border-gray-400 text-gray-700 rounded-full px-3 h-[30px] text-[11px] font-medium hover:bg-gray-50 transition-colors whitespace-nowrap">
                 <Store className="w-3.5 h-3.5"/> Stores
@@ -433,7 +406,7 @@ const AurusListing: React.FC = () => {
           </div>
         </div>
 
-        {/* Row 2 — purple nav */}
+        {/* Row 2 â€” purple nav */}
         <div className="bg-[#6B21A8]">
           <div className="max-w-[1400px] mx-auto px-4 flex items-center h-[43px] overflow-x-auto">
             {NAV_ITEMS.map(n => (
@@ -458,9 +431,9 @@ const AurusListing: React.FC = () => {
             </div>
           </div>
         </div>
-      </header>
+      </header>}
 
-      {/* ── Breadcrumb ── */}
+      {/* â”€â”€ Breadcrumb â”€â”€ */}
       <div className="bg-[#F5F3F8] border-b border-gray-200 py-6">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-5">
           <div className="flex items-baseline gap-2.5">
@@ -481,7 +454,7 @@ const AurusListing: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Quick-filter chip strip ── */}
+      {/* â”€â”€ Quick-filter chip strip â”€â”€ */}
       <div className="bg-white">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-5 pt-8 pb-5 flex items-center gap-3 overflow-x-auto">
           {CHIPS.map(chip => (
@@ -501,15 +474,15 @@ const AurusListing: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Main layout: sidebar + content ── */}
+      {/* â”€â”€ Main layout: sidebar + content â”€â”€ */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-5 pb-16 flex gap-7">
 
-        {/* ════════════════════════════════
-            LEFT SIDEBAR — Filter Panel
-        ════════════════════════════════ */}
+        {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            LEFT SIDEBAR â€” Filter Panel
+        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
         <aside className="hidden lg:block w-[240px] flex-shrink-0">
           <div className="sticky top-[93px] pt-7">
-            {/* Filters header — no border line above, only below each section */}
+            {/* Filters header â€” no border line above, only below each section */}
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               paddingBottom: 16, paddingTop: 0,
@@ -545,7 +518,7 @@ const AurusListing: React.FC = () => {
               )}
             </div>
 
-            {/* Filter sections — scrollbar hidden to match CaratLane */}
+            {/* Filter sections â€” scrollbar hidden to match CaratLane */}
             <div className="filter-scroll max-h-[calc(100vh-160px)] overflow-y-auto">
               {FILTER_SECTIONS.map(sec => (
                 <FilterSection
@@ -561,12 +534,12 @@ const AurusListing: React.FC = () => {
           </div>
         </aside>
 
-        {/* ════════════════════════════════
-            RIGHT CONTENT — Products
-        ════════════════════════════════ */}
+        {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+            RIGHT CONTENT â€” Products
+        â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
         <div className="flex-1 min-w-0 pt-5">
 
-          {/* ── Applied filter chips + Sort ── */}
+          {/* â”€â”€ Applied filter chips + Sort â”€â”€ */}
           <div className="flex items-center justify-between mb-6 gap-3 flex-wrap min-h-[36px]">
             <div className="flex items-center gap-2 flex-wrap flex-1">
               <button
@@ -596,7 +569,7 @@ const AurusListing: React.FC = () => {
                         className="text-gray-500 hover:text-gray-900 transition-colors leading-none ml-0.5 text-[15px] font-light"
                         aria-label={`Remove ${display} filter`}
                       >
-                        ×
+                        Ã—
                       </button>
                     </span>
                   );
@@ -620,18 +593,18 @@ const AurusListing: React.FC = () => {
             </div>
           </div>
 
-          {/* ════════════════════════════════════════════════════════
-              Product grid — 4 columns, rounded cards, promo tiles
-          ════════════════════════════════════════════════════════ */}
+          {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              Product grid â€” 4 columns, rounded cards, promo tiles
+          â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-5 gap-y-8">
             {gridItems.map((item) => {
 
-              /* ── Promotional tile ── */
+              /* â”€â”€ Promotional tile â”€â”€ */
               if (item.kind === 'promo') {
                 return <PromoTile key={item.id} variant={item.variant} />;
               }
 
-              /* ── Product card ── */
+              /* â”€â”€ Product card â”€â”€ */
               const { p, idx } = item;
               const wished = wishlist.includes(p.id);
               const disc   = Math.round(((p.mrp - p.price) / p.mrp) * 100);
@@ -688,7 +661,7 @@ const AurusListing: React.FC = () => {
                                   color: o.color,
                                 }}
                               >
-                                <span className="text-[16px]">{inR ? '✓' : o.icon}</span>
+                                <span className="text-[16px]">{inR ? 'âœ“' : o.icon}</span>
                                 <span className="text-[8.5px] font-semibold">{o.label}</span>
                               </button>
                             );
@@ -706,12 +679,12 @@ const AurusListing: React.FC = () => {
                     <Link to={`/products/${p.id}`}>
                       <img
                         src={p.image} alt={p.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                     </Link>
                   </div>
 
-                  {/* Service badges — text only, no colored background chips */}
+                  {/* Service badges â€” text only, no colored background chips */}
                   <div className="flex flex-wrap gap-3 px-3 pt-3">
                     {p.tryAtHome && (
                       <span className="text-[10px] font-medium text-[#00796B] tracking-wide" style={UI}>
@@ -776,7 +749,7 @@ const AurusListing: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Mobile filter drawer ── */}
+      {/* â”€â”€ Mobile filter drawer â”€â”€ */}
       {mobileSidebarOpen && (
         <>
           <div className="fixed inset-0 bg-black/40 z-[110]" onClick={() => setMobileSidebarOpen(false)}/>
@@ -824,3 +797,4 @@ const AurusListing: React.FC = () => {
 };
 
 export default AurusListing;
+

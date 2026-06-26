@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useParams, Link } from 'react-router-dom';
 import { PRODUCTS, ThemeKey } from '@/data/products';
 import { useStore } from '@/context/StoreContext';
-import ThemeSwitcher from '@/components/ThemeSwitcher';
+// import ThemeSwitcher from '@/components/ThemeSwitcher';
 import CraftProduct from '@/themes/CraftProduct';
 import JewelProduct from '@/themes/JewelProduct';
 import FashionProduct from '@/themes/FashionProduct';
@@ -13,9 +14,15 @@ const ProductPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { theme, setTheme } = useStore();
 
-  // Find product across all themes by id
   const all = Object.values(PRODUCTS).flat();
   const product = all.find(p => p.id === id);
+
+  // Sync theme to the product's brand universe without mutating during render
+  useEffect(() => {
+    if (product && product.theme !== theme) {
+      setTheme(product.theme as ThemeKey);
+    }
+  }, [product?.theme]);
 
   if (!product) {
     return (
@@ -27,19 +34,18 @@ const ProductPage: React.FC = () => {
     );
   }
 
-  // Ensure the active theme matches the product's brand universe
-  if (product.theme !== theme) {
-    setTheme(product.theme as ThemeKey);
-  }
-
   return (
     <div>
+      <Helmet>
+        <title>{product.name} | Aurus Fine Jewellery</title>
+        <meta name="description" content={product.desc} />
+      </Helmet>
       {product.theme === 'craft' && <CraftProduct product={product} />}
       {product.theme === 'jewel' && <JewelProduct product={product} />}
       {product.theme === 'fashion' && <FashionProduct product={product} />}
       {product.theme === 'market' && <MarketProduct product={product} />}
       {product.theme === 'aurus' && <AurusProduct product={product} />}
-      <ThemeSwitcher />
+      {/* <ThemeSwitcher /> */}
     </div>
   );
 };

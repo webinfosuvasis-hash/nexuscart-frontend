@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
 import {
@@ -13,10 +13,10 @@ const PAYMENT_METHODS = [
   { id: 'upi',  label: 'UPI',              icon: Smartphone, sub: 'Google Pay, PhonePe, Paytm'   },
   { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, sub: 'Visa, Mastercard, RuPay'    },
   { id: 'cod',  label: 'Cash on Delivery',  icon: Truck,      sub: 'Pay when you receive'         },
-  { id: 'emi',  label: 'EMI',              icon: Wallet,     sub: 'No-cost EMI on 3–12 months'   },
+  { id: 'emi',  label: 'EMI',              icon: Wallet,     sub: 'No-cost EMI on 3â€“12 months'   },
 ];
 
-/* ─── Order success overlay ──────────────────────────────── */
+/* â”€â”€â”€ Order success overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => void }> = ({ orderId, total, onClose }) => (
   <div className="fixed inset-0 z-[200] flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
     <div className="bg-white rounded-2xl shadow-2xl max-w-[420px] w-full p-8 text-center" style={UI}>
@@ -38,7 +38,7 @@ const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => vo
         </div>
         <div className="flex justify-between">
           <span>Estimated delivery</span>
-          <span className="font-semibold text-green-600">5–7 working days</span>
+          <span className="font-semibold text-green-600">5â€“7 working days</span>
         </div>
         <div className="flex justify-between">
           <span>Shipping</span>
@@ -60,9 +60,9 @@ const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => vo
   </div>
 );
 
-/* ══════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    CHECKOUT PAGE
-══════════════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const AurusCheckout: React.FC = () => {
   const { cart, cartTotal } = useStore();
   const navigate = useNavigate();
@@ -111,18 +111,18 @@ const AurusCheckout: React.FC = () => {
           </div>
           {/* Step indicator */}
           <div className="hidden sm:flex items-center gap-1.5 text-[11px]" style={UI}>
-            <span className="text-purple-700 font-bold">① Address</span>
+            <span className="text-purple-700 font-bold">â‘  Address</span>
             <ChevronRight className="w-3 h-3 text-gray-300"/>
-            <span className="text-gray-400">② Payment</span>
+            <span className="text-gray-400">â‘¡ Payment</span>
             <ChevronRight className="w-3 h-3 text-gray-300"/>
-            <span className="text-gray-400">③ Confirm</span>
+            <span className="text-gray-400">â‘¢ Confirm</span>
           </div>
         </div>
       </header>
 
       <div className="max-w-[1280px] mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
 
-        {/* ── LEFT: Address + Payment ── */}
+        {/* â”€â”€ LEFT: Address + Payment â”€â”€ */}
         <div className="space-y-5">
 
           {/* Delivery Address */}
@@ -198,13 +198,13 @@ const AurusCheckout: React.FC = () => {
             {/* COD note */}
             {payment === 'cod' && (
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-[12px] text-amber-800">
-                ₹50 COD convenience fee will be added at order confirmation.
+                â‚¹50 COD convenience fee will be added at order confirmation.
               </div>
             )}
           </div>
         </div>
 
-        {/* ── RIGHT: Order Summary ── */}
+        {/* â”€â”€ RIGHT: Order Summary â”€â”€ */}
         <div className="space-y-4">
 
           {/* Items list */}
@@ -216,7 +216,7 @@ const AurusCheckout: React.FC = () => {
               {cart.map(line => (
                 <div key={line.id} className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
-                    <img src={line.image} alt={line.name} className="w-full h-full object-cover"/>
+                    <img src={line.image} alt={line.name} loading="lazy" className="w-full h-full object-cover"/>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-medium text-gray-800 line-clamp-1">{line.name}</p>
@@ -231,8 +231,8 @@ const AurusCheckout: React.FC = () => {
           {/* Price breakdown */}
           <div className="bg-white rounded-xl shadow-sm px-5 py-4 space-y-2.5">
             <PriceRow label="Subtotal"           value={inr(subtotal)}/>
-            <PriceRow label="You Saved"          value={`– ${inr(totalSaved)}`} valueColor="#00897B"/>
-            <PriceRow label="Coupon Discount"    value="—"/>
+            <PriceRow label="You Saved"          value={`â€“ ${inr(totalSaved)}`} valueColor="#00897B"/>
+            <PriceRow label="Coupon Discount"    value="â€”"/>
             <PriceRow label="Shipping"           value="FREE" valueColor="#00897B"/>
             {payment === 'cod' && <PriceRow label="COD Fee" value={inr(50)}/>}
             <div className="h-px bg-gray-200 my-1"/>
@@ -272,7 +272,7 @@ const AurusCheckout: React.FC = () => {
   );
 };
 
-/* ─── Helpers ─────────────────────────────────────────────── */
+/* â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const Field: React.FC<{
   label: string; value: string; onChange: (v: string) => void;
   placeholder?: string; type?: string; maxLen?: number;
@@ -300,3 +300,4 @@ const PriceRow: React.FC<{ label: string; value: string; valueColor?: string }> 
 );
 
 export default AurusCheckout;
+

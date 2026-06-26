@@ -24,8 +24,12 @@ const StoreContext = createContext<StoreState | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<ThemeKey>(() => (localStorage.getItem('mt_theme') as ThemeKey) || 'aurus');
-  const [cart, setCart] = useState<CartLine[]>(() => JSON.parse(localStorage.getItem('mt_cart') || '[]'));
-  const [wishlist, setWishlist] = useState<string[]>(() => JSON.parse(localStorage.getItem('mt_wish') || '[]'));
+  const [cart, setCart] = useState<CartLine[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mt_cart') || '[]'); } catch { return []; }
+  });
+  const [wishlist, setWishlist] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('mt_wish') || '[]'); } catch { return []; }
+  });
   const [cartOpen, setCartOpen] = useState(false);
 
   useEffect(() => { localStorage.setItem('mt_theme', theme); }, [theme]);

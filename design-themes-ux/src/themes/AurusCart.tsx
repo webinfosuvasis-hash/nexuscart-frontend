@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
 import { PRODUCTS } from '@/data/products';
@@ -10,7 +10,7 @@ import {
 
 const UI = { fontFamily: 'system-ui, -apple-system, sans-serif' };
 
-/* ─── TRUST FOOTER BAR ───────────────────────────────────────────── */
+/* â”€â”€â”€ TRUST FOOTER BAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const TrustBar: React.FC = () => (
   <footer className="bg-white border-t border-gray-200 mt-auto" style={UI}>
     <div className="px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
@@ -41,7 +41,7 @@ const TrustBar: React.FC = () => (
   </footer>
 );
 
-/* ─── HEADER ─────────────────────────────────────────────────────── */
+/* â”€â”€â”€ HEADER â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const CartHeader: React.FC<{
   activeTab: 'bag' | 'trial';
   setActiveTab: (t: 'bag' | 'trial') => void;
@@ -97,9 +97,9 @@ const CartHeader: React.FC<{
   </header>
 );
 
-/* ═══════════════════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN CART COMPONENT
-═══════════════════════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const AurusCart: React.FC = () => {
   const { cart, removeFromCart, updateQty, addToCart } = useStore();
   const navigate = useNavigate();
@@ -119,7 +119,7 @@ const AurusCart: React.FC = () => {
   const cartIds  = new Set(cart.map(l => l.id));
   const fbtItems = PRODUCTS.aurus.filter(p => !cartIds.has(p.id)).slice(0, 3);
 
-  /* ── EMPTY STATE ── */
+  /* â”€â”€ EMPTY STATE â”€â”€ */
   if (cart.length === 0) {
     return (
       <div className="min-h-screen flex flex-col" style={{ background: '#F5F3F8', ...UI }}>
@@ -142,7 +142,7 @@ const AurusCart: React.FC = () => {
 
       <CartHeader activeTab={activeTab} setActiveTab={setActiveTab} cartCount={cart.length} navigate={navigate}/>
 
-      {/* ── Main content — centered, same proportions as CaratLane ── */}
+      {/* â”€â”€ Main content â€” centered, same proportions as CaratLane â”€â”€ */}
       <div className="flex-1 w-full">
         {/*
           CaratLane uses a ~970px centered container.
@@ -151,9 +151,9 @@ const AurusCart: React.FC = () => {
         <div className="max-w-[1280px] mx-auto px-6 pt-[82px] pb-12">
           <div className="flex gap-8 items-start">
 
-            {/* ══════════════════════════════
-                LEFT — Cart Items
-            ══════════════════════════════ */}
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+                LEFT â€” Cart Items
+            â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
             <div className="flex-1 min-w-0 space-y-3">
 
               {/* Video-call banner */}
@@ -190,7 +190,7 @@ const AurusCart: React.FC = () => {
                   <div key={line.id} className="bg-white rounded-lg" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
                     <div className="flex gap-4 p-4">
 
-                      {/* Product image — 120px, white bg, orange badge at bottom */}
+                      {/* Product image â€” 120px, white bg, orange badge at bottom */}
                       <div className="relative flex-shrink-0" style={{ width: 150, height: 150 }}>
                         <div
                           className="w-full h-full rounded overflow-hidden flex items-center justify-center"
@@ -199,15 +199,16 @@ const AurusCart: React.FC = () => {
                           <img
                             src={line.image}
                             alt={line.name}
+                            loading="lazy"
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        {/* 🔥 badge */}
+                        {/* ðŸ”¥ badge */}
                         <div
                           className="absolute bottom-0 left-0 right-0 text-white text-center leading-none font-bold"
                           style={{ background: '#F57C00', fontSize: 8, padding: '3px 2px' }}
                         >
-                          🔥 13k+ BOUGHT THIS
+                          ðŸ”¥ 13k+ BOUGHT THIS
                         </div>
                       </div>
 
@@ -220,7 +221,7 @@ const AurusCart: React.FC = () => {
                           >
                             {line.name}
                           </Link>
-                          {/* Dark ✕ button — matches CaratLane */}
+                          {/* Dark âœ• button â€” matches CaratLane */}
                           <button
                             onClick={() => removeFromCart(line.id)}
                             className="flex-shrink-0 w-[22px] h-[22px] rounded-full flex items-center justify-center transition-colors"
@@ -265,7 +266,7 @@ const AurusCart: React.FC = () => {
                               <Plus className="w-3 h-3"/>
                             </button>
                           </div>
-                          {/* Pink link — matches CaratLane */}
+                          {/* Pink link â€” matches CaratLane */}
                           <button
                             className="text-[12.5px] underline underline-offset-2"
                             style={{ color: '#E91E8C' }}
@@ -312,12 +313,12 @@ const AurusCart: React.FC = () => {
                               className="relative w-[140px] h-[140px] rounded overflow-hidden"
                               style={{ background: '#F8F6FF' }}
                             >
-                              <img src={p.image} alt={p.name} className="w-full h-full object-cover"/>
+                              <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-cover"/>
                               <button
                                 onClick={() => addToCart(p)}
                                 className="absolute top-1.5 right-1.5 bg-white border border-gray-200 rounded-full text-[8px] font-bold text-gray-700 px-1.5 py-0.5 hover:bg-purple-50 hover:border-purple-400 hover:text-purple-700 transition-all shadow-sm"
                               >
-                                {inC ? '✓' : '+ ADD'}
+                                {inC ? 'âœ“' : '+ ADD'}
                               </button>
                             </div>
                             <div className="mt-2">
@@ -336,9 +337,9 @@ const AurusCart: React.FC = () => {
               )}
             </div>
 
-            {/* ══════════════════════════════
-                RIGHT — Order Summary
-            ══════════════════════════════ */}
+            {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+                RIGHT â€” Order Summary
+            â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
             <div className="flex-shrink-0 space-y-3" style={{ width: 360, marginTop: 24 }}>
 
               {/* App promo card */}
@@ -346,7 +347,7 @@ const AurusCart: React.FC = () => {
                 className="rounded-xl overflow-hidden relative"
                 style={{ background: 'linear-gradient(135deg,#2D0353 0%,#5B1494 50%,#7C3AED 100%)' }}
               >
-                {/* Header row: logo left, Free ₹500 right */}
+                {/* Header row: logo left, Free â‚¹500 right */}
                 <div className="flex items-start justify-between px-4 pt-4 pb-0">
                   {/* Left: logo + description */}
                   <div style={{ maxWidth: 150 }}>
@@ -360,11 +361,11 @@ const AurusCart: React.FC = () => {
                       </div>
                     </div>
                     <p className="text-[11px] leading-snug" style={{ color: '#E0D4F0' }}>
-                      Get ₹500 off by completing your profile on the App
+                      Get â‚¹500 off by completing your profile on the App
                     </p>
                   </div>
 
-                  {/* Right: Free + big ₹500 + Just for you! */}
+                  {/* Right: Free + big â‚¹500 + Just for you! */}
                   <div className="text-right flex-shrink-0 ml-2">
                     <p className="text-[11px] font-light leading-none" style={{ color: '#C9B8D8' }}>Free</p>
                     <p
@@ -376,7 +377,7 @@ const AurusCart: React.FC = () => {
                         WebkitTextFillColor: 'transparent',
                       }}
                     >
-                      ₹500
+                      â‚¹500
                     </p>
                     <p className="text-[8px] leading-none" style={{ color: '#C9B8D8' }}>Just for you!</p>
                   </div>
@@ -390,7 +391,7 @@ const AurusCart: React.FC = () => {
                 </div>
               </div>
 
-              {/* Apply Coupon — lavender bg */}
+              {/* Apply Coupon â€” lavender bg */}
               <div className="rounded-xl overflow-hidden" style={{ background: '#EDE9FE' }}>
                 <button
                   onClick={() => setCouponOpen(o => !o)}
@@ -423,7 +424,7 @@ const AurusCart: React.FC = () => {
                 )}
               </div>
 
-              {/* Check Delivery — white bg */}
+              {/* Check Delivery â€” white bg */}
               <div className="bg-white rounded-xl overflow-hidden" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                 <div className="flex items-center gap-2.5 px-4 py-3">
                   <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
@@ -447,7 +448,7 @@ const AurusCart: React.FC = () => {
                   )}
                 </div>
 
-                {/* Expandable input — shown when user clicks "Enter Pincode" */}
+                {/* Expandable input â€” shown when user clicks "Enter Pincode" */}
                 {showPincodeInput && !pincodeOk && (
                   <div className="px-4 pb-3 border-t border-gray-100 pt-2.5 flex gap-2">
                     <input
@@ -476,7 +477,7 @@ const AurusCart: React.FC = () => {
                 )}
               </div>
 
-              {/* Price breakdown — white card */}
+              {/* Price breakdown â€” white card */}
               <div className="bg-white rounded-xl px-4 py-4" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
                 <div className="space-y-3 text-[13px]" style={UI}>
                   <div className="flex items-center justify-between">
@@ -485,7 +486,7 @@ const AurusCart: React.FC = () => {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">You Saved</span>
-                    <span className="font-bold" style={{ color: '#00897B' }}>– {inr(totalSaved)}</span>
+                    <span className="font-bold" style={{ color: '#00897B' }}>â€“ {inr(totalSaved)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-gray-500">Coupon Discount</span>
@@ -535,3 +536,4 @@ const AurusCart: React.FC = () => {
 };
 
 export default AurusCart;
+

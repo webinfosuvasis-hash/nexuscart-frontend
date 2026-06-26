@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
 import { Product } from '@/data/products';
@@ -6,31 +6,12 @@ import { getReviews, getRelated, VARIANTS } from '@/data/reviews';
 import CartDrawer from '@/components/CartDrawer';
 // import ThemeSwitcher from '@/components/ThemeSwitcher';
 import {
-  Search, Heart, ShoppingBag, User, ChevronDown, ChevronLeft, ChevronRight,
+  Heart, ChevronDown, ChevronLeft, ChevronRight,
   Store, Star, Share2, Home, Video, CreditCard, Shield, RotateCcw, Award,
   MapPin, Check, ThumbsUp, X,
 } from 'lucide-react';
-
-const UI   = { fontFamily: 'system-ui, -apple-system, sans-serif' };
-const SERIF= { fontFamily: "'Cormorant Garamond', Georgia, 'Times New Roman', serif" };
-
-const NAV_ITEMS = [
-  'Sarees','Kurtas & Sets','Blouses','Lehenga','Dupattas',
-  'Co-ord Sets','Festive Edit','Collections','New Arrivals','Gifting','Trending',
-];
-const NAV_LINKS: Record<string, string> = {
-  'Sarees':        '/jewellery/sarees',
-  'Kurtas & Sets': '/jewellery/kurtas',
-  'Blouses':       '/jewellery/blouses',
-  'Lehenga':       '/jewellery/lehenga',
-  'Dupattas':      '/jewellery/dupattas',
-  'Co-ord Sets':   '/jewellery/coord-sets',
-  'Festive Edit':  '/jewellery/festive',
-  'Collections':   '/jewellery/collections',
-  'New Arrivals':  '/jewellery/new-arrivals',
-  'Gifting':       '/jewellery/gifting',
-  'Trending':      '/jewellery/trending',
-};
+import AurusHeader from './aurus/AurusHeader';
+import { UI, SERIF, NAV_LINKS } from './aurus/constants';
 
 const FABRIC_OPTIONS = [
   { label: 'Pure Silk',     color: '#B5892E', border: '#8B6A1E' },
@@ -42,7 +23,7 @@ const GARMENT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Free Size'];
 
 const REVIEW_FILTERS = ['All','Positive','With Photos','Verified','Most Recent'];
 
-/* ── Star row ── */
+/* â”€â”€ Star row â”€â”€ */
 const StarRow: React.FC<{ r: number; size?: number }> = ({ r, size = 13 }) => (
   <span className="inline-flex gap-0.5">
     {[1,2,3,4,5].map(i => (
@@ -55,7 +36,7 @@ const StarRow: React.FC<{ r: number; size?: number }> = ({ r, size = 13 }) => (
   </span>
 );
 
-/* ── Accordion ── */
+/* â”€â”€ Accordion â”€â”€ */
 const Acc: React.FC<{ title: string; children: React.ReactNode; open?: boolean }> = ({
   title, children, open: defaultOpen = false,
 }) => {
@@ -79,9 +60,9 @@ const Acc: React.FC<{ title: string; children: React.ReactNode; open?: boolean }
   );
 };
 
-/* ══════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    MAIN COMPONENT
-══════════════════════════════════════════════════ */
+â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
   const { addToCart, toggleWishlist, wishlist, cartCount, setCartOpen } = useStore();
   const related  = getRelated(product, 'aurus', 6);
@@ -96,6 +77,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
   const [checking,       setChecking]       = useState(false);
   const [reviewFilter,   setReviewFilter]   = useState('All');
   const [searchQuery,    setSearchQuery]    = useState('');
+  const [headerSearch,   setHeaderSearch]   = useState('');
 
   const images  = [product.image, ...related.slice(0,3).map(r => r.image)];
   const wished  = wishlist.includes(product.id);
@@ -107,89 +89,20 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
     if (pincode.length === 6) {
       setChecking(true);
       setDeliveryMsg('');
-      setTimeout(() => { setDeliveryMsg('Delivery by Wed, 2 Jul 2026 — FREE'); setChecking(false); }, 900);
+      setTimeout(() => { setDeliveryMsg('Delivery by Wed, 2 Jul 2026 â€” FREE'); setChecking(false); }, 900);
     }
   };
 
   return (
     <div className="min-h-screen bg-white" style={UI}>
 
-      {/* ── Announcement bar ── */}
-      <div className="bg-purple-950 text-white text-center text-[11px] py-2 tracking-wide" style={UI}>
-        <span className="font-semibold">Flat 100% Off on Making Charges</span>
-        <span className="mx-3 text-purple-400">•</span>Free Shipping on Orders Above ₹1,999
-        <span className="mx-3 text-purple-400">•</span>15-Day Easy Exchange &amp; Returns
-      </div>
+      <AurusHeader
+        activeNav={product.category}
+        searchQuery={headerSearch}
+        onSearchChange={setHeaderSearch}
+      />
 
-      {/* ── Header Row 1 ── */}
-      <header className="sticky top-0 z-50">
-        <div className="bg-white border-b border-gray-100" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-          <div className="max-w-[1400px] mx-auto px-4 h-[50px] flex items-center gap-3">
-            <Link to="/jewellery/rings" className="flex-shrink-0 flex flex-col leading-none mr-1">
-              <span className="text-[19px] font-bold tracking-[0.14em] text-gray-900 hover:text-purple-700 transition-colors" style={SERIF}>
-                AURUS
-              </span>
-              <span className="text-[8px] text-gray-400 tracking-[0.22em] uppercase mt-px" style={UI}>Fine Jewellery</span>
-            </Link>
-
-            <div className="flex-1 max-w-[600px] flex h-[34px]">
-              <input
-                type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search for jewellery, occasions, styles…"
-                className="flex-1 h-full pl-4 pr-3 text-[13px] border border-gray-300 border-r-0 outline-none focus:border-purple-500 bg-white"
-                style={UI}
-              />
-              <button className="h-full px-4 bg-purple-700 hover:bg-purple-800 flex items-center justify-center flex-shrink-0 transition-colors">
-                <Search className="w-[17px] h-[17px] text-white"/>
-              </button>
-            </div>
-
-            <div className="hidden md:flex items-center gap-2 flex-shrink-0">
-              <button className="flex items-center gap-1.5 border border-gray-400 text-gray-700 rounded-full px-3 h-[30px] text-[11px] font-medium hover:bg-gray-50 whitespace-nowrap">
-                <Store className="w-3.5 h-3.5"/> Stores
-              </button>
-            </div>
-
-            <button className="flex-shrink-0 text-gray-600 hover:text-purple-700 transition-colors"><User className="w-[19px] h-[19px]"/></button>
-            <button
-              onClick={() => toggleWishlist(product.id)}
-              className="flex-shrink-0 relative text-gray-600 hover:text-red-500 transition-colors"
-            >
-              <Heart className={`w-[19px] h-[19px] ${wished ? 'fill-red-500 text-red-500' : ''}`}/>
-              {wishlist.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-purple-700 text-white text-[8px] w-[14px] h-[14px] rounded-full flex items-center justify-center font-bold">{wishlist.length}</span>}
-            </button>
-            <button onClick={() => setCartOpen(true)} className="flex-shrink-0 relative text-gray-600 hover:text-purple-700 transition-colors">
-              <ShoppingBag className="w-[19px] h-[19px]"/>
-              {cartCount > 0 && <span className="absolute -top-1.5 -right-1.5 bg-purple-700 text-white text-[8px] w-[14px] h-[14px] rounded-full flex items-center justify-center font-bold">{cartCount}</span>}
-            </button>
-          </div>
-        </div>
-
-        {/* Purple nav */}
-        <div className="bg-[#6B21A8]">
-          <div className="max-w-[1400px] mx-auto px-4 flex items-center h-[43px] overflow-x-auto">
-            {NAV_ITEMS.map(n => (
-              <Link
-                key={n}
-                to={NAV_LINKS[n] ?? '/jewellery'}
-                className={`flex-shrink-0 px-3.5 h-[43px] flex items-center text-[13px] font-medium whitespace-nowrap transition-colors ${
-                  product.category === n ? 'text-white border-b-[3px] border-white' : 'text-white/85 hover:text-white hover:bg-purple-700'
-                }`}
-                style={UI}
-              >
-                {n}
-              </Link>
-            ))}
-            <div className="ml-auto flex-shrink-0 pl-2">
-              <button className="flex items-center gap-1 border border-white/50 text-white text-[12px] font-medium px-4 h-8 hover:bg-purple-700 rounded-sm" style={UI}>
-                Services <ChevronDown className="w-3.5 h-3.5"/>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* ── Breadcrumb ── */}
+      {/* â”€â”€ Breadcrumb â”€â”€ */}
       <div className="bg-white border-b border-gray-100 py-2.5">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-5 flex items-center gap-1.5 text-[11px] text-gray-400" style={UI}>
           <Link to="/" className="hover:text-purple-700 transition-colors">Home</Link>
@@ -202,13 +115,13 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════
-          MAIN PDP — 2-column layout
-      ══════════════════════════════════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+          MAIN PDP â€” 2-column layout
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-5 py-6">
         <div className="grid lg:grid-cols-2 gap-10 xl:gap-14 items-start">
 
-          {/* ── LEFT: Gallery ── */}
+          {/* â”€â”€ LEFT: Gallery â”€â”€ */}
           <div>
             {/* Main image with nav arrows */}
             <div className="relative bg-[#F8F6F8] overflow-hidden">
@@ -243,7 +156,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
               </div>
             </div>
 
-            {/* 2×2 thumbnail grid */}
+            {/* 2Ã—2 thumbnail grid */}
             <div className="grid grid-cols-2 gap-1.5 mt-1.5">
               {images.slice(0, 4).map((img, i) => (
                 <button
@@ -253,7 +166,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
                     activeImg === i ? 'ring-2 ring-purple-600 ring-offset-1' : 'opacity-75 hover:opacity-100'
                   }`}
                 >
-                  <img src={img} alt={`View ${i + 1}`} className="w-full h-full object-cover"/>
+                  <img src={img} alt={`View ${i + 1}`} loading="lazy" className="w-full h-full object-cover"/>
                 </button>
               ))}
             </div>
@@ -275,7 +188,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
             </div>
           </div>
 
-          {/* ── RIGHT: Product Info ── */}
+          {/* â”€â”€ RIGHT: Product Info â”€â”€ */}
           <div>
             {/* Category */}
             <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-600 mb-1" style={UI}>
@@ -409,7 +322,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
                   className="border border-purple-700 text-purple-700 hover:bg-purple-700 hover:text-white disabled:opacity-40 px-5 py-2 text-[12px] font-semibold transition-all rounded-sm"
                   style={UI}
                 >
-                  {checking ? '…' : 'Check'}
+                  {checking ? 'â€¦' : 'Check'}
                 </button>
               </div>
               {deliveryMsg && (
@@ -463,7 +376,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
             <div className="flex items-center gap-2.5 mt-4 p-3 bg-[#FAFAF8] border border-gray-200 rounded-sm">
               <CreditCard className="w-4 h-4 text-purple-600 flex-shrink-0"/>
               <p className="text-[12px] text-gray-700" style={UI}>
-                EMI from <strong className="text-gray-900">{inr(emiAmt)}/month</strong> · 0% interest on 3-month plans
+                EMI from <strong className="text-gray-900">{inr(emiAmt)}/month</strong> Â· 0% interest on 3-month plans
                 <button className="text-purple-600 ml-2 hover:underline underline-offset-2 text-[11px]">View Plans</button>
               </p>
             </div>
@@ -496,8 +409,8 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
                 <li><span className="font-semibold text-gray-700">Stone:</span> Natural Diamond</li>
                 <li><span className="font-semibold text-gray-700">No. of Stones:</span> 5</li>
                 <li><span className="font-semibold text-gray-700">Total Carat Weight:</span> 0.07 cts</li>
-                <li><span className="font-semibold text-gray-700">Colour:</span> G–H</li>
-                <li><span className="font-semibold text-gray-700">Clarity:</span> SI1–SI2</li>
+                <li><span className="font-semibold text-gray-700">Colour:</span> Gâ€“H</li>
+                <li><span className="font-semibold text-gray-700">Clarity:</span> SI1â€“SI2</li>
                 <li><span className="font-semibold text-gray-700">Setting:</span> Prong</li>
               </ul>
             </Acc>
@@ -530,9 +443,9 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       </div>
 
-      {/* ══════════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           CUSTOMER REVIEWS
-      ══════════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <section className="bg-[#FAFAF8] border-t border-gray-200 py-12">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-5">
 
@@ -594,7 +507,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
 
           {/* Count */}
           <p className="text-[12px] text-gray-500 mb-5" style={UI}>
-            Showing 1–{Math.min(reviews.length, 5)} of <span className="font-semibold text-gray-700">{product.reviews}</span> reviews
+            Showing 1â€“{Math.min(reviews.length, 5)} of <span className="font-semibold text-gray-700">{product.reviews}</span> reviews
           </p>
 
           {/* Review cards */}
@@ -654,7 +567,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
                 {p}
               </button>
             ))}
-            <span className="px-2 text-gray-400 text-[13px]">…</span>
+            <span className="px-2 text-gray-400 text-[13px]">â€¦</span>
             <button className="w-8 h-8 flex items-center justify-center text-[13px] text-gray-500 hover:text-purple-700 border border-gray-200 hover:border-purple-200 rounded-sm transition-all">
               <ChevronRight className="w-4 h-4"/>
             </button>
@@ -662,9 +575,9 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           YOU MAY ALSO LIKE
-      ══════════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <section className="bg-white border-t border-gray-100 py-12">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-5">
           <div className="flex items-center justify-between mb-6">
@@ -698,7 +611,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
                       <Heart className={`w-3 h-3 ${w ? 'fill-red-500 text-red-500' : 'text-gray-400'}`}/>
                     </button>
                     <Link to={`/products/${p.id}`}>
-                      <img src={p.image} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"/>
+                      <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"/>
                     </Link>
                   </div>
                   <div className="p-2.5">
@@ -737,9 +650,9 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           APP DOWNLOAD BANNER
-      ══════════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <section
         className="py-10 px-4"
         style={{ background: 'linear-gradient(135deg, #2E0E5C 0%, #6B21A8 60%, #7C3AED 100%)' }}
@@ -751,7 +664,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
               Download the Aurus App
             </h3>
             <p className="text-purple-200 text-[13px] mt-1.5" style={UI}>
-              Get exclusive app-only offers · Try at Home · Video Consultation
+              Get exclusive app-only offers Â· Try at Home Â· Video Consultation
             </p>
           </div>
           <div className="flex gap-3 flex-shrink-0">
@@ -773,9 +686,9 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           FOOTER
-      ══════════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <footer className="bg-white border-t border-gray-200" style={UI}>
         <div className="max-w-[1400px] mx-auto px-4 sm:px-5 py-12 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-8 text-[13px] text-gray-600">
           {/* Brand col */}
@@ -805,7 +718,7 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
         <div className="border-t border-gray-100 py-4 px-4">
           <div className="max-w-[1400px] mx-auto flex items-center justify-between flex-wrap gap-3">
-            <p className="text-[11px] text-gray-400">© 2026 Aurus Fine Jewellery Pvt. Ltd. All rights reserved.</p>
+            <p className="text-[11px] text-gray-400">Â© 2026 Aurus Fine Jewellery Pvt. Ltd. All rights reserved.</p>
             <div className="flex gap-4">
               {['VISA','Mastercard','UPI','EMI'].map(p => (
                 <span key={p} className="text-[10px] font-bold text-gray-400 border border-gray-200 px-2 py-0.5 rounded">{p}</span>
@@ -822,3 +735,4 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
 };
 
 export default AurusProduct;
+
