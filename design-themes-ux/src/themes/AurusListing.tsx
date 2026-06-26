@@ -2,7 +2,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
 import { useRegistry, OCCASIONS, OccasionKey } from '@/context/RegistryContext';
-import { PRODUCTS } from '@/data/products';
+import { PRODUCTS, THEME_META } from '@/data/products';
 import {
   ChevronDown, X, Star, SlidersHorizontal, Gift,
 } from 'lucide-react';
