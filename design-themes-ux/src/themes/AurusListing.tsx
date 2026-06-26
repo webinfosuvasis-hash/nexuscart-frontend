@@ -5,6 +5,7 @@ import { useRegistry, OCCASIONS, OccasionKey } from '@/context/RegistryContext';
 import { PRODUCTS, THEME_META } from '@/data/products';
 import {
   ChevronDown, X, Star, SlidersHorizontal, Gift,
+  Heart, ShoppingBag, Search, Store, User,
 } from 'lucide-react';
 import CartDrawer from '@/components/CartDrawer';
 // import ThemeSwitcher from '@/components/ThemeSwitcher';
