@@ -1,0 +1,1584 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String
+  password      String
+  avatar        String?
+  role          UserRole       @default(STORE_STAFF)
+  storeId       String?
+  isActive      Boolean        @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  auditLogs     AuditLog[]
+  blogPosts     BlogPost[]     @relation("BlogAuthor")
+  orderNotes    OrderNote[]
+  refreshTokens RefreshToken[]
+  staffOf       StoreStaff[]
+  ownedStore    Store?         @relation("StoreOwner")
+
+  @@index([email])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model Plan {
+  id            String         @id @default(cuid())
+  name          String
+  tier          PlanTier       @unique
+  description   String?        @db.Text
+  price         Decimal        @db.Decimal(10, 2)
+  yearlyPrice   Decimal        @db.Decimal(10, 2)
+  isActive      Boolean        @default(true)
+  isPopular     Boolean        @default(false)
+  maxProducts   Int?
+  maxStaff      Int?
+  maxOrders     Int?
+  maxStorage    Int?
+  maxApiCalls   Int?
+  features      String         @db.LongText
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  storeId            String             @unique
+  planId             String
+  status             SubscriptionStatus @default(TRIAL)
+  billingCycle       String             @default("MONTHLY")
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  trialEndsAt        DateTime?
+  cancelAtPeriodEnd  Boolean            @default(false)
+  cancelledAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  invoices           Invoice[]
+  plan               Plan               @relation(fields: [planId], references: [id])
+  store              Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([planId], map: "subscriptions_planId_fkey")
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  storeId        String
+  subscriptionId String?
+  amount         Decimal       @db.Decimal(10, 2)
+  status         InvoiceStatus @default(OPEN)
+  description    String?
+  pdfUrl         String?
+  dueAt          DateTime?
+  paidAt         DateTime?
+  createdAt      DateTime      @default(now())
+  store          Store         @relation(fields: [storeId], references: [id])
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+
+  @@index([storeId], map: "invoices_storeId_fkey")
+  @@index([subscriptionId], map: "invoices_subscriptionId_fkey")
+  @@map("invoices")
+}
+
+model Store {
+  id                 String                @id @default(cuid())
+  name               String
+  slug               String                @unique
+  domain             String                @unique
+  businessType       BusinessType          @default(FASHION)
+  status             StoreStatus           @default(TRIAL)
+  ownerId            String                @unique
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  analyticsEvents    AnalyticsEvent[]
+  attributeSets      AttributeSet[]
+  attributes         Attribute[]
+  auditLogs          AuditLog[]            @relation("StoreAuditLogs")
+  blogPosts          BlogPost[]
+  brands             Brand[]
+  builderPages       BuilderPage[]         @relation("BuilderPages")
+  builderSections    BuilderSection[]      @relation("BuilderSections")
+  campaigns          Campaign[]
+  categories         Category[]
+  cmsPages           CmsPage[]
+  collections        Collection[]
+  componentDefs      ComponentDefinition[] @relation("ComponentDefinitions")
+  coupons            Coupon[]
+  customers          Customer[]
+  emailTemplates     EmailTemplate[]
+  footerConfigs      FooterConfig[]
+  headerConfigs      HeaderConfig[]
+  invoices           Invoice[]
+  loyaltyAccounts    LoyaltyAccount[]
+  menus              Menu[]
+  merchandisingRules MerchandisingRule[]
+  orders             Order[]
+  pageDocuments      PageDocument[]        @relation("PageDocuments")
+  products           Product[]
+  searchConfig       SearchConfig?
+  searchQueries      SearchQuery[]
+  synonyms           SearchSynonym[]
+  sectionDefinitions SectionDefinition[]
+  settings           StoreSettings?
+  staff              StoreStaff[]
+  themes             StoreTheme[]
+  owner              User                  @relation("StoreOwner", fields: [ownerId], references: [id])
+  subscription       Subscription?
+  suppliers          Supplier[]
+  symbolDocuments    SymbolDocument[]      @relation("SymbolDocuments")
+  themeConfigs       ThemeConfig[]
+  themeDocuments     ThemeDocument[]       @relation("ThemeDocuments")
+  themePageBlocks    ThemePageBlock[]      @relation("ThemePageBlocks")
+  themePageSections  ThemePageSection[]    @relation("ThemePageSections")
+  themePresets       ThemePreset[]
+  warehouses         Warehouse[]
+
+  @@map("stores")
+}
+
+model StoreSettings {
+  id                String   @id @default(cuid())
+  storeId           String   @unique
+  logo              String?
+  favicon           String?
+  primaryColor      String   @default("#4f46e5")
+  currency          String   @default("INR")
+  language          String   @default("en")
+  timezone          String   @default("Asia/Kolkata")
+  metaTitle         String?
+  metaDescription   String?  @db.Text
+  taxEnabled        Boolean  @default(false)
+  taxRate           Decimal  @default(0.00) @db.Decimal(5, 2)
+  facebook          String?
+  instagram         String?
+  twitter           String?
+  youtube           String?
+  orderEmailEnabled Boolean  @default(true)
+  lowStockThreshold Int      @default(10)
+  updatedAt         DateTime @updatedAt
+  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("store_settings")
+}
+
+model StoreStaff {
+  id          String   @id @default(cuid())
+  storeId     String
+  userId      String
+  role        String   @default("STAFF")
+  invitedById String?
+  joinedAt    DateTime @default(now())
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([storeId, userId])
+  @@index([userId], map: "store_staff_userId_fkey")
+  @@map("store_staff")
+}
+
+model Brand {
+  id              String    @id @default(cuid())
+  storeId         String
+  name            String
+  slug            String
+  description     String?   @db.Text
+  logo            String?
+  bannerImage     String?
+  websiteUrl      String?
+  metaTitle       String?
+  metaDescription String?   @db.Text
+  isFeatured      Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  store           Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products        Product[]
+
+  @@unique([storeId, slug])
+  @@map("brands")
+}
+
+model Collection {
+  id          String              @id @default(cuid())
+  storeId     String
+  name        String
+  slug        String
+  description String?             @db.Text
+  image       String?
+  type        CollectionType      @default(MANUAL)
+  rules       String?             @db.LongText
+  sortBy      String              @default("MANUAL")
+  isFeatured  Boolean             @default(false)
+  isActive    Boolean             @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  store       Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products    ProductCollection[]
+
+  @@unique([storeId, slug])
+  @@map("collections")
+}
+
+model ProductCollection {
+  id           String     @id @default(cuid())
+  productId    String
+  collectionId String
+  isPinned     Boolean    @default(false)
+  sortOrder    Int        @default(0)
+  addedAt      DateTime   @default(now())
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, collectionId])
+  @@index([collectionId], map: "product_collections_collectionId_fkey")
+  @@map("product_collections")
+}
+
+model Attribute {
+  id           String             @id @default(cuid())
+  storeId      String
+  name         String
+  slug         String
+  type         AttributeType      @default(DROPDOWN)
+  isRequired   Boolean            @default(false)
+  isFilterable Boolean            @default(true)
+  isVisible    Boolean            @default(true)
+  sortOrder    Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  sets         AttributeSetItem[]
+  values       AttributeValue[]
+  store        Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@map("attributes")
+}
+
+model AttributeValue {
+  id          String    @id @default(cuid())
+  attributeId String
+  value       String
+  label       String
+  color       String?
+  image       String?
+  sortOrder   Int       @default(0)
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  @@index([attributeId], map: "attribute_values_attributeId_fkey")
+  @@map("attribute_values")
+}
+
+model AttributeSet {
+  id         String             @id @default(cuid())
+  storeId    String
+  name       String
+  createdAt  DateTime           @default(now())
+  attributes AttributeSetItem[]
+  store      Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "attribute_sets_storeId_fkey")
+  @@map("attribute_sets")
+}
+
+model AttributeSetItem {
+  id             String       @id @default(cuid())
+  attributeSetId String
+  attributeId    String
+  sortOrder      Int          @default(0)
+  attribute      Attribute    @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  attributeSet   AttributeSet @relation(fields: [attributeSetId], references: [id], onDelete: Cascade)
+
+  @@unique([attributeSetId, attributeId])
+  @@index([attributeId], map: "attribute_set_items_attributeId_fkey")
+  @@map("attribute_set_items")
+}
+
+model Category {
+  id                  String         @id @default(cuid())
+  storeId             String
+  parentId            String?
+  name                String
+  slug                String
+  description         String?        @db.Text
+  image               String?
+  sortOrder           Int            @default(0)
+  isActive            Boolean        @default(true)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  deletedAt           DateTime?
+  attributeSetId      String?
+  bannerImage         String?
+  isFeatured          Boolean        @default(false)
+  landingPageSections String?        @db.LongText
+  menuVisibility      MenuVisibility @default(BOTH)
+  metaDescription     String?        @db.Text
+  metaTitle           String?
+  rules               String?        @db.LongText
+  showOnHomepage      Boolean        @default(false)
+  parent              Category?      @relation("CategoryTree", fields: [parentId], references: [id])
+  children            Category[]     @relation("CategoryTree")
+  store               Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  products            Product[]
+
+  @@unique([storeId, slug])
+  @@index([parentId], map: "categories_parentId_fkey")
+  @@map("categories")
+}
+
+model Product {
+  id                String              @id @default(cuid())
+  storeId           String
+  categoryId        String?
+  name              String
+  slug              String
+  description       String?             @db.LongText
+  shortDescription  String?             @db.Text
+  price             Decimal             @db.Decimal(10, 2)
+  comparePrice      Decimal?            @db.Decimal(10, 2)
+  costPrice         Decimal?            @db.Decimal(10, 2)
+  sku               String
+  barcode           String?
+  weight            Decimal?            @db.Decimal(8, 2)
+  status            ProductStatus       @default(DRAFT)
+  isFeatured        Boolean             @default(false)
+  trackInventory    Boolean             @default(true)
+  stock             Int                 @default(0)
+  lowStockThreshold Int                 @default(5)
+  images            String              @db.LongText
+  thumbnail         String?
+  tags              String              @db.LongText
+  seo               String?             @db.Text
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deletedAt         DateTime?
+  approvalStatus    ApprovalStatus      @default(DRAFT)
+  badges            String?             @db.LongText
+  brandId           String?
+  crossSellIds      String?             @db.LongText
+  internalNotes     String?             @db.Text
+  publishAt         DateTime?
+  relatedProductIds String?             @db.LongText
+  templateType      String?
+  upsellIds         String?             @db.LongText
+  hsCode            String?
+  priceIncludesTax  Boolean             @default(false)
+  taxCategory       String?
+  orderItems        OrderItem[]
+  collections       ProductCollection[]
+  reviews           ProductReview[]
+  variants          ProductVariant[]
+  versions          ProductVersion[]
+  brand             Brand?              @relation(fields: [brandId], references: [id])
+  category          Category?           @relation(fields: [categoryId], references: [id])
+  store             Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@unique([storeId, sku])
+  @@index([storeId, status])
+  @@index([brandId], map: "products_brandId_fkey")
+  @@index([categoryId], map: "products_categoryId_fkey")
+  @@map("products")
+}
+
+model ProductVersion {
+  id         String   @id @default(cuid())
+  productId  String
+  version    Int
+  snapshot   Json
+  changedBy  String?
+  changeNote String?
+  createdAt  DateTime @default(now())
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId], map: "product_versions_productId_fkey")
+  @@map("product_versions")
+}
+
+model ProductVariant {
+  id           String      @id @default(cuid())
+  productId    String
+  name         String
+  sku          String
+  price        Decimal     @db.Decimal(10, 2)
+  comparePrice Decimal?    @db.Decimal(10, 2)
+  stock        Int         @default(0)
+  image        String?
+  options      String?     @db.LongText
+  createdAt    DateTime    @default(now())
+  orderItems   OrderItem[]
+  product      Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId], map: "product_variants_productId_fkey")
+  @@map("product_variants")
+}
+
+model ProductReview {
+  id         String   @id @default(cuid())
+  productId  String
+  customerId String
+  rating     Int
+  title      String?
+  body       String?  @db.Text
+  isVerified Boolean  @default(false)
+  isVisible  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  customer   Customer @relation(fields: [customerId], references: [id])
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@index([customerId], map: "product_reviews_customerId_fkey")
+  @@index([productId], map: "product_reviews_productId_fkey")
+  @@map("product_reviews")
+}
+
+model Warehouse {
+  id        String           @id @default(cuid())
+  storeId   String
+  name      String
+  location  String
+  address   String?          @db.Text
+  manager   String?
+  phone     String?
+  status    String           @default("ACTIVE")
+  capacity  Int              @default(10000)
+  createdAt DateTime         @default(now())
+  movements StockMovement[]
+  stock     WarehouseStock[]
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "warehouses_storeId_fkey")
+  @@map("warehouses")
+}
+
+model WarehouseStock {
+  id          String    @id @default(cuid())
+  warehouseId String
+  productId   String
+  stock       Int       @default(0)
+  reserved    Int       @default(0)
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@unique([warehouseId, productId])
+  @@map("warehouse_stock")
+}
+
+model Supplier {
+  id             String          @id @default(cuid())
+  storeId        String
+  name           String
+  contactName    String?
+  email          String?
+  phone          String?
+  website        String?
+  currency       String          @default("INR")
+  leadTime       String?
+  rating         Decimal         @default(0.00) @db.Decimal(3, 2)
+  status         String          @default("ACTIVE")
+  address        String?         @db.Text
+  notes          String?         @db.Text
+  createdAt      DateTime        @default(now())
+  purchaseOrders PurchaseOrder[]
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "suppliers_storeId_fkey")
+  @@map("suppliers")
+}
+
+model StockMovement {
+  id          String       @id @default(cuid())
+  storeId     String
+  productId   String
+  warehouseId String?
+  type        MovementType
+  quantity    Int
+  reason      String?
+  reference   String?
+  createdById String?
+  createdAt   DateTime     @default(now())
+  warehouse   Warehouse?   @relation(fields: [warehouseId], references: [id])
+
+  @@index([warehouseId], map: "stock_movements_warehouseId_fkey")
+  @@map("stock_movements")
+}
+
+model PurchaseOrder {
+  id           String              @id @default(cuid())
+  storeId      String
+  supplierId   String
+  poNumber     String              @unique
+  status       String              @default("DRAFT")
+  total        Decimal             @db.Decimal(10, 2)
+  notes        String?             @db.Text
+  expectedDate DateTime?
+  receivedAt   DateTime?
+  createdById  String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  items        PurchaseOrderItem[]
+  supplier     Supplier            @relation(fields: [supplierId], references: [id])
+
+  @@index([supplierId], map: "purchase_orders_supplierId_fkey")
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Int
+  receivedQty     Int           @default(0)
+  unitCost        Decimal       @db.Decimal(10, 2)
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([purchaseOrderId], map: "purchase_order_items_purchaseOrderId_fkey")
+  @@map("purchase_order_items")
+}
+
+model Order {
+  id              String               @id @default(cuid())
+  storeId         String
+  customerId      String?
+  orderNumber     String               @unique
+  status          OrderStatus          @default(PENDING)
+  paymentStatus   PaymentStatus        @default(PENDING)
+  paymentMethod   String?
+  subtotal        Decimal              @db.Decimal(10, 2)
+  discount        Decimal              @default(0.00) @db.Decimal(10, 2)
+  tax             Decimal              @default(0.00) @db.Decimal(10, 2)
+  shippingCost    Decimal              @default(0.00) @db.Decimal(10, 2)
+  total           Decimal              @db.Decimal(10, 2)
+  refundedAmount  Decimal              @default(0.00) @db.Decimal(10, 2)
+  shippingAddress String?              @db.LongText
+  billingAddress  String?              @db.LongText
+  couponCode      String?
+  customerNote    String?              @db.Text
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  items           OrderItem[]
+  notes           OrderNote[]
+  statusHistory   OrderStatusHistory[]
+  customer        Customer?            @relation(fields: [customerId], references: [id])
+  store           Store                @relation(fields: [storeId], references: [id])
+  refunds         Refund[]
+  shipments       Shipment[]
+
+  @@index([storeId, status])
+  @@index([storeId, createdAt])
+  @@index([customerId], map: "orders_customerId_fkey")
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String          @id @default(cuid())
+  orderId     String
+  productId   String
+  variantId   String?
+  productName String
+  variantName String?
+  sku         String
+  quantity    Int
+  unitPrice   Decimal         @db.Decimal(10, 2)
+  total       Decimal         @db.Decimal(10, 2)
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id])
+  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([orderId], map: "order_items_orderId_fkey")
+  @@index([productId], map: "order_items_productId_fkey")
+  @@index([variantId], map: "order_items_variantId_fkey")
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(cuid())
+  orderId   String
+  status    OrderStatus
+  note      String?     @db.Text
+  createdAt DateTime    @default(now())
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId], map: "order_status_history_orderId_fkey")
+  @@map("order_status_history")
+}
+
+model OrderNote {
+  id         String   @id @default(cuid())
+  orderId    String
+  userId     String?
+  content    String   @db.Text
+  isInternal Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id])
+
+  @@index([orderId], map: "order_notes_orderId_fkey")
+  @@index([userId], map: "order_notes_userId_fkey")
+  @@map("order_notes")
+}
+
+model Shipment {
+  id             String    @id @default(cuid())
+  orderId        String
+  trackingNumber String?
+  carrier        String?
+  status         String    @default("PENDING")
+  shippedAt      DateTime?
+  deliveredAt    DateTime?
+  createdAt      DateTime  @default(now())
+  order          Order     @relation(fields: [orderId], references: [id])
+
+  @@index([orderId], map: "shipments_orderId_fkey")
+  @@map("shipments")
+}
+
+model Refund {
+  id            String   @id @default(cuid())
+  orderId       String
+  amount        Decimal  @db.Decimal(10, 2)
+  reason        String?  @db.Text
+  status        String   @default("PENDING")
+  processedById String?
+  createdAt     DateTime @default(now())
+  order         Order    @relation(fields: [orderId], references: [id])
+
+  @@index([orderId], map: "refunds_orderId_fkey")
+  @@map("refunds")
+}
+
+model Customer {
+  id          String            @id @default(cuid())
+  storeId     String
+  email       String
+  name        String
+  phone       String?
+  avatar      String?
+  segment     CustomerSegment   @default(NEW)
+  totalOrders Int               @default(0)
+  totalSpent  Decimal           @default(0.00) @db.Decimal(10, 2)
+  lastOrderAt DateTime?
+  isActive    Boolean           @default(true)
+  notes       String?           @db.Text
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  deletedAt   DateTime?
+  addresses   CustomerAddress[]
+  store       Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  loyalty     LoyaltyAccount?
+  orders      Order[]
+  reviews     ProductReview[]
+
+  @@unique([storeId, email])
+  @@index([storeId, segment])
+  @@map("customers")
+}
+
+model CustomerAddress {
+  id         String   @id @default(cuid())
+  customerId String
+  label      String?  @default("Home")
+  firstName  String?
+  lastName   String?
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  postalCode String
+  country    String   @default("IN")
+  phone      String?
+  isDefault  Boolean  @default(false)
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId], map: "customer_addresses_customerId_fkey")
+  @@map("customer_addresses")
+}
+
+model LoyaltyAccount {
+  id           String               @id @default(cuid())
+  customerId   String               @unique
+  storeId      String
+  points       Int                  @default(0)
+  tier         LoyaltyTier          @default(BRONZE)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  store        Store                @relation(fields: [storeId], references: [id])
+  transactions LoyaltyTransaction[]
+
+  @@index([storeId], map: "loyalty_accounts_storeId_fkey")
+  @@map("loyalty_accounts")
+}
+
+model LoyaltyTransaction {
+  id               String         @id @default(cuid())
+  loyaltyAccountId String
+  points           Int
+  type             String
+  description      String?
+  createdAt        DateTime       @default(now())
+  loyaltyAccount   LoyaltyAccount @relation(fields: [loyaltyAccountId], references: [id])
+
+  @@index([loyaltyAccountId], map: "loyalty_transactions_loyaltyAccountId_fkey")
+  @@map("loyalty_transactions")
+}
+
+model Coupon {
+  id               String     @id @default(cuid())
+  storeId          String
+  code             String
+  type             CouponType @default(PERCENTAGE)
+  value            Decimal    @db.Decimal(10, 2)
+  minOrderAmount   Decimal?   @db.Decimal(10, 2)
+  maxDiscount      Decimal?   @db.Decimal(10, 2)
+  usageLimit       Int?
+  usagePerCustomer Int?       @default(1)
+  usedCount        Int        @default(0)
+  isActive         Boolean    @default(true)
+  startsAt         DateTime   @default(now())
+  expiresAt        DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  store            Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, code])
+  @@map("coupons")
+}
+
+model Campaign {
+  id          String         @id @default(cuid())
+  storeId     String
+  name        String
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+  audience    String?
+  subject     String?
+  content     String?        @db.LongText
+  opens       Int            @default(0)
+  clicks      Int            @default(0)
+  conversions Int            @default(0)
+  revenue     Decimal        @default(0.00) @db.Decimal(10, 2)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  store       Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "campaigns_storeId_fkey")
+  @@map("campaigns")
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  storeId     String
+  name        String
+  type        String
+  subject     String
+  htmlContent String   @db.LongText
+  openRate    Decimal  @default(0.00) @db.Decimal(5, 2)
+  clickRate   Decimal  @default(0.00) @db.Decimal(5, 2)
+  isActive    Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "email_templates_storeId_fkey")
+  @@map("email_templates")
+}
+
+model CmsPage {
+  id          String        @id @default(cuid())
+  storeId     String
+  title       String
+  slug        String
+  status      PageStatus    @default(DRAFT)
+  seoTitle    String?
+  seoDesc     String?       @db.Text
+  ogImage     String?
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  store       Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sections    PageSection[]
+
+  @@unique([storeId, slug])
+  @@map("cms_pages")
+}
+
+model PageSection {
+  id        String   @id @default(cuid())
+  pageId    String
+  type      String
+  name      String
+  settings  Json
+  order     Int      @default(0)
+  isVisible Boolean  @default(true)
+  createdAt DateTime @default(now())
+  page      CmsPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId], map: "page_sections_pageId_fkey")
+  @@map("page_sections")
+}
+
+model Menu {
+  id        String     @id @default(cuid())
+  storeId   String
+  name      String
+  handle    String
+  createdAt DateTime   @default(now())
+  items     MenuItem[]
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, handle])
+  @@map("menus")
+}
+
+model MenuItem {
+  id        String     @id @default(cuid())
+  menuId    String
+  parentId  String?
+  label     String
+  url       String?
+  type      String     @default("LINK")
+  sortOrder Int        @default(0)
+  menu      Menu       @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  parent    MenuItem?  @relation("MenuItemTree", fields: [parentId], references: [id])
+  children  MenuItem[] @relation("MenuItemTree")
+
+  @@index([menuId], map: "menu_items_menuId_fkey")
+  @@index([parentId], map: "menu_items_parentId_fkey")
+  @@map("menu_items")
+}
+
+model BlogPost {
+  id          String        @id @default(cuid())
+  storeId     String
+  authorId    String?
+  title       String
+  slug        String
+  excerpt     String?       @db.Text
+  content     String?       @db.LongText
+  thumbnail   String?
+  tags        String?       @db.LongText
+  status      PageStatus    @default(DRAFT)
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  comments    BlogComment[]
+  author      User?         @relation("BlogAuthor", fields: [authorId], references: [id])
+  store       Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, slug])
+  @@index([authorId], map: "blog_posts_authorId_fkey")
+  @@map("blog_posts")
+}
+
+model BlogComment {
+  id          String   @id @default(cuid())
+  postId      String
+  authorName  String
+  authorEmail String
+  content     String   @db.Text
+  isApproved  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  post        BlogPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([postId], map: "blog_comments_postId_fkey")
+  @@map("blog_comments")
+}
+
+model Theme {
+  id              String       @id @default(cuid())
+  name            String
+  description     String?      @db.Text
+  author          String
+  version         String       @default("1.0.0")
+  thumbnail       String?
+  demoUrl         String?
+  category        String
+  price           Decimal      @default(0.00) @db.Decimal(10, 2)
+  rating          Decimal      @default(0.00) @db.Decimal(3, 2)
+  ratingCount     Int          @default(0)
+  downloads       Int          @default(0)
+  features        Json?
+  defaultSettings Json?
+  isMarketplace   Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  storeThemes     StoreTheme[]
+
+  @@map("themes")
+}
+
+model StoreTheme {
+  id          String    @id @default(cuid())
+  storeId     String
+  themeId     String
+  isActive    Boolean   @default(false)
+  settings    Json?
+  installedAt DateTime  @default(now())
+  activatedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  theme       Theme     @relation(fields: [themeId], references: [id])
+
+  @@unique([storeId, themeId])
+  @@index([themeId], map: "store_themes_themeId_fkey")
+  @@map("store_themes")
+}
+
+model SearchConfig {
+  id              String   @id @default(cuid())
+  storeId         String   @unique
+  autocomplete    Boolean  @default(true)
+  fuzzy           Boolean  @default(true)
+  synonyms        Boolean  @default(true)
+  spellcheck      Boolean  @default(false)
+  recommendations Boolean  @default(true)
+  boost           Boolean  @default(false)
+  resultLimit     Int      @default(24)
+  updatedAt       DateTime @updatedAt
+  store           Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("search_config")
+}
+
+model SearchSynonym {
+  id        String   @id @default(cuid())
+  storeId   String
+  terms     Json
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "search_synonyms_storeId_fkey")
+  @@map("search_synonyms")
+}
+
+model MerchandisingRule {
+  id        String   @id @default(cuid())
+  storeId   String
+  query     String
+  action    String
+  productId String?
+  position  Int?
+  isEnabled Boolean  @default(true)
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId], map: "merchandising_rules_storeId_fkey")
+  @@map("merchandising_rules")
+}
+
+model SearchQuery {
+  id          String   @id @default(cuid())
+  storeId     String
+  query       String
+  resultCount Int      @default(0)
+  source      String?
+  createdAt   DateTime @default(now())
+  store       Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId], map: "search_queries_storeId_fkey")
+  @@map("search_queries")
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  storeId   String
+  type      String
+  source    String?
+  sessionId String?
+  userId    String?
+  productId String?
+  page      String?
+  meta      String?  @db.LongText
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, type, createdAt])
+  @@map("analytics_events")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  storeId   String?
+  userId    String?
+  action    String
+  resource  String
+  details   String?  @db.Text
+  ipAddress String?
+  duration  Int?
+  createdAt DateTime @default(now())
+  store     Store?   @relation("StoreAuditLogs", fields: [storeId], references: [id])
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([storeId, createdAt])
+  @@index([userId], map: "audit_logs_userId_fkey")
+  @@map("audit_logs")
+}
+
+model ThemeConfig {
+  id        String       @id @default(cuid())
+  storeId   String
+  themeId   String
+  status    ConfigStatus @default(DRAFT)
+  config    Json
+  version   Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  store     Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, themeId, status])
+  @@index([storeId, themeId, status])
+  @@map("theme_configs")
+}
+
+model HeaderConfig {
+  id        String       @id @default(cuid())
+  storeId   String
+  status    ConfigStatus @default(DRAFT)
+  zones     Json
+  behavior  Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  store     Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, status])
+  @@map("header_configs")
+}
+
+model FooterConfig {
+  id        String       @id @default(cuid())
+  storeId   String
+  status    ConfigStatus @default(DRAFT)
+  columns   Json
+  bottomBar Json
+  settings  Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  store     Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, status])
+  @@map("footer_configs")
+}
+
+model ThemePreset {
+  id           String     @id @default(cuid())
+  storeId      String?
+  themeId      String
+  name         String     @db.VarChar(60)
+  description  String?    @db.VarChar(200)
+  thumbnailUrl String?    @db.VarChar(500)
+  type         PresetType
+  tag          String?    @db.VarChar(40)
+  config       Json
+  themeVersion String     @db.VarChar(20)
+  isActive     Boolean    @default(false)
+  createdBy    String?
+  expiresAt    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  store        Store?     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, type])
+  @@index([themeId, type])
+  @@map("theme_presets")
+}
+
+model BlockDefinition {
+  type              String      @id
+  name              String      @db.VarChar(100)
+  icon              String?     @db.VarChar(50)
+  description       String?     @db.VarChar(300)
+  settingsSchema    Json
+  allowedInSections Json
+  tier              SectionTier @default(FREE)
+  isRequired        Boolean     @default(false)
+  maxPerSection     Int?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@map("block_definitions")
+}
+
+model SectionDefinition {
+  id                String             @id
+  storeId           String?
+  name              String             @db.VarChar(100)
+  description       String?            @db.VarChar(300)
+  category          SectionCategory
+  tier              SectionTier        @default(FREE)
+  icon              String?            @db.VarChar(50)
+  previewImage      String?            @db.VarChar(500)
+  compatibleThemes  Json
+  settingsSchema    Json
+  allowedBlockTypes Json?
+  defaultBlocks     Json?
+  version           String             @default("1.0.0") @db.VarChar(20)
+  isBuiltIn         Boolean            @default(false)
+  isActive          Boolean            @default(true)
+  createdBy         String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  store             Store?             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  pages             ThemePageSection[]
+
+  @@index([storeId, isActive])
+  @@index([category, tier])
+  @@map("section_definitions")
+}
+
+model ThemePageSection {
+  id           String            @id @default(cuid())
+  storeId      String
+  themeId      String?
+  pageId       String            @db.VarChar(100)
+  sectionDefId String
+  label        String?           @db.VarChar(200)
+  settings     Json
+  sortOrder    Decimal           @default(0.000000) @db.Decimal(10, 6)
+  isVisible    Boolean           @default(true)
+  isDraft      Boolean           @default(false)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  blocks       ThemePageBlock[]
+  definition   SectionDefinition @relation(fields: [sectionDefId], references: [id])
+  store        Store             @relation("ThemePageSections", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, themeId, pageId, isDraft])
+  @@index([storeId, pageId, isDraft])
+  @@index([sectionDefId], map: "theme_page_sections_sectionDefId_fkey")
+  @@map("theme_page_sections")
+}
+
+model ThemePageBlock {
+  id        String           @id @default(cuid())
+  storeId   String
+  themeId   String?
+  sectionId String
+  type      String           @db.VarChar(100)
+  settings  Json
+  sortOrder Decimal          @default(0.000000) @db.Decimal(10, 6)
+  isVisible Boolean          @default(true)
+  isDraft   Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  section   ThemePageSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  store     Store            @relation("ThemePageBlocks", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, sortOrder])
+  @@index([storeId, themeId, isDraft])
+  @@map("theme_page_blocks")
+}
+
+model PageDocument {
+  id            String       @id @default(cuid())
+  storeId       String
+  themeId       String
+  scope         DocScope     @default(PAGE)
+  ownerKey      String       @db.VarChar(150)
+  status        ConfigStatus @default(DRAFT)
+  version       Int          @default(1)
+  schemaVersion Int          @default(1)
+  tree          Json
+  seo           Json?
+  settings      Json?
+  publishedAt   DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  store         Store        @relation("PageDocuments", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, themeId, ownerKey, status])
+  @@index([storeId, themeId, status])
+  @@map("page_documents")
+}
+
+model SymbolDocument {
+  id           String       @id @default(cuid())
+  storeId      String
+  themeId      String
+  scope        DocScope
+  handle       String       @db.VarChar(100)
+  status       ConfigStatus @default(DRAFT)
+  version      Int          @default(1)
+  tree         Json
+  exposedProps Json
+  updatedAt    DateTime     @updatedAt
+  store        Store        @relation("SymbolDocuments", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, themeId, handle, status])
+  @@index([storeId, themeId, status])
+  @@map("symbol_documents")
+}
+
+model ThemeDocument {
+  id         String       @id @default(cuid())
+  storeId    String?
+  themeId    String
+  semver     String       @db.VarChar(20)
+  status     ConfigStatus @default(DRAFT)
+  tokens     Json
+  templates  Json
+  components Json
+  updatedAt  DateTime     @updatedAt
+  store      Store?       @relation("ThemeDocuments", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, themeId, status])
+  @@index([themeId, status])
+  @@map("theme_documents")
+}
+
+model NodeRef {
+  id           String       @id @default(cuid())
+  storeId      String
+  documentId   String
+  documentType DocScope
+  ownerKey     String       @db.VarChar(150)
+  status       ConfigStatus
+  refType      RefType
+  refId        String
+  nodePath     String       @db.VarChar(500)
+
+  @@index([storeId, refType, refId])
+  @@index([documentId, status])
+  @@map("node_refs")
+}
+
+model CompiledPage {
+  id             String   @id @default(cuid())
+  storeId        String
+  themeId        String
+  ownerKey       String   @db.VarChar(150)
+  cacheKey       String   @db.VarChar(120)
+  artifactUrl    String   @db.VarChar(500)
+  islandManifest Json
+  checksum       String   @db.VarChar(64)
+  publishedAt    DateTime @default(now())
+
+  @@unique([storeId, themeId, ownerKey])
+  @@index([cacheKey])
+  @@map("compiled_pages")
+}
+
+model ComponentDefinition {
+  id              String        @id
+  storeId         String?
+  kind            ComponentKind
+  name            String        @db.VarChar(100)
+  icon            String?       @db.VarChar(50)
+  category        String        @db.VarChar(40)
+  description     String?       @db.VarChar(300)
+  settingsSchema  Json
+  acceptsChildren Boolean       @default(false)
+  allowedChildren Json?
+  minChildren     Int?
+  maxChildren     Int?
+  providesContext String?       @db.VarChar(50)
+  interactive     Boolean       @default(false)
+  schemaVersion   Int           @default(1)
+  isBuiltIn       Boolean       @default(false)
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  store           Store?        @relation("ComponentDefinitions", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, kind, isActive])
+  @@map("component_definitions")
+}
+
+model DocumentVersion {
+  id           String   @id @default(cuid())
+  documentId   String
+  documentType DocScope
+  version      Int
+  snapshot     Json
+  publishedBy  String?
+  createdAt    DateTime @default(now())
+
+  @@index([documentId, version])
+  @@map("document_versions")
+}
+
+model BuilderPage {
+  id          String           @id @default(cuid())
+  storeId     String
+  /// 'home' | 'collection' | 'product' | 'landing' | 'blog' | 'checkout' | 'custom'
+  pageType    String           @db.VarChar(50)
+  /// Unique per store+pageType: 'home' | 'landing:summer-sale' | 'collection:jewellery'
+  slug        String           @db.VarChar(200)
+  /// Merchant-visible display name e.g. "Homepage", "Summer Sale 2026"
+  name        String           @db.VarChar(200)
+  /// 'LIVE' | 'DRAFT'
+  status      String           @default("LIVE") @db.VarChar(20)
+  /// Incremented on every publish — supports future version history and rollback
+  version     Int              @default(1)
+  publishedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  store    Store            @relation("BuilderPages", fields: [storeId], references: [id], onDelete: Cascade)
+  sections BuilderSection[]
+
+  @@unique([storeId, pageType, slug])
+  @@index([storeId, pageType])
+  @@map("builder_pages")
+}
+
+model BuilderSection {
+  id          String      @id @default(cuid())
+  storeId     String
+  pageId      String
+  /// Strongly typed via SECTION_TYPE enum on the frontend
+  /// e.g. 'hero_banner' | 'featured_products' | 'campaign_grid' | 'newsletter'
+  sectionType String      @db.VarChar(80)
+  /// Merchant-editable display name shown in the Homepage Builder overview
+  label       String      @db.VarChar(200)
+  sortOrder   Int         @default(0)
+  isEnabled   Boolean     @default(true)
+  /// true = read-only in Page Builder (e.g. trust_badges managed from Theme Engine)
+  isLocked    Boolean     @default(false)
+  /// 'LIVE' | 'DRAFT' | 'SCHEDULED' | 'DISABLED'
+  status      String      @default("LIVE") @db.VarChar(20)
+  /// Section-specific config JSON — schema per sectionType defined in SectionRegistry.ts (Phase 2+)
+  config      Json
+  goLiveAt    DateTime?
+  expireAt    DateTime?
+  /// userId of the last user to modify this section — for audit trail
+  updatedBy   String?     @db.VarChar(191)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  page  BuilderPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  store Store       @relation("BuilderSections", fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, pageId, sortOrder])
+  @@index([storeId, sectionType])
+  @@index([pageId], map: "builder_sections_pageId_fkey")
+  @@map("builder_sections")
+}
+
+enum BusinessType {
+  FASHION
+  ELECTRONICS
+  FURNITURE
+  GROCERY
+  COSMETICS
+  GIFTS
+  LIFESTYLE
+}
+
+enum StoreStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+}
+
+enum PlanTier {
+  STARTER
+  GROWTH
+  PRO
+  ENTERPRISE
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  STORE_OWNER
+  STORE_MANAGER
+  STORE_STAFF
+  CUSTOMER
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+  PARTIAL
+}
+
+enum CustomerSegment {
+  VIP
+  REGULAR
+  NEW
+  AT_RISK
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+  FREE_SHIPPING
+}
+
+enum CampaignType {
+  EMAIL
+  SMS
+  PUSH
+  FLASH_SALE
+  WHATSAPP
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+  PAUSED
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  PAUSED
+}
+
+enum InvoiceStatus {
+  OPEN
+  PAID
+  VOID
+}
+
+enum MovementType {
+  IN
+  OUT
+  TRANSFER
+  ADJUSTMENT
+}
+
+enum AttributeType {
+  TEXT
+  DROPDOWN
+  COLOR
+  IMAGE
+  NUMBER
+  BOOLEAN
+}
+
+enum CollectionType {
+  MANUAL
+  SMART
+  AUTO
+}
+
+enum ApprovalStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum MenuVisibility {
+  HEADER
+  FOOTER
+  BOTH
+  HIDDEN
+}
+
+enum ConfigStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum DocScope {
+  PAGE
+  SYMBOL
+  HEADER
+  FOOTER
+  ANNOUNCEMENT
+}
+
+enum RefType {
+  COLLECTION
+  PRODUCT
+  MENU
+  SYMBOL
+  COMPONENT
+  PAGE
+  FILE
+}
+
+enum ComponentKind {
+  ROOT
+  LAYOUT
+  CONTENT
+  DATA_BOUND
+}
+
+enum PresetType {
+  SYSTEM
+  MARKETPLACE
+  CUSTOM
+  AUTO_SNAPSHOT
+}
+
+enum SectionTier {
+  FREE
+  PREMIUM
+  CUSTOM
+}
+
+enum SectionCategory {
+  MEDIA
+  PRODUCTS
+  CONTENT
+  SOCIAL
+  COMMERCE
+  CUSTOM
+}
+
+enum PageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LoyaltyTier {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
