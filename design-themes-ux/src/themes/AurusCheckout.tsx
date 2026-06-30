@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useStore, inr } from '@/context/StoreContext';
+import { useStore, inr, cartLineKey } from '@/context/StoreContext';
 import {
   ArrowLeft, Check, ChevronRight, MapPin, CreditCard,
   Smartphone, Wallet, Truck, Lock, ShoppingBag,
@@ -214,7 +214,7 @@ const AurusCheckout: React.FC = () => {
             </h2>
             <div className="space-y-3">
               {cart.map(line => (
-                <div key={line.id} className="flex items-center gap-3">
+                <div key={cartLineKey(line)} className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
                     <img src={line.image} alt={line.name} loading="lazy" className="w-full h-full object-cover"/>
                   </div>

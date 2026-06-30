@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import slugify from 'slugify';
+import { seedFashionCatalog } from './seeds/fashion/catalog.seed';
+import { seedHomepage } from './seeds/fashion/homepage.seed';
 
 const prisma = new PrismaClient();
 
@@ -176,9 +178,24 @@ async function main() {
   }
   console.log(`✅ ${themes.length} themes seeded`);
 
-  console.log('\n✨ Database seeded successfully!');
+  console.log('\n✨ Base platform data seeded successfully!');
   console.log('📧 Super Admin: admin@nexuscart.com / Admin@123456');
   console.log('📧 Store Owner: owner@fashionstore.com / Owner@123456');
+
+  // ─── Indian Ladies Fashion production catalog ────────────────────────────
+  // Targets the store that the running Aurus storefront actually reads from
+  // (VITE_STORE_ID) — a separate, real-feeling store from the demo data
+  // above. Kept in its own try/catch so a failure here doesn't roll back
+  // the unrelated platform-setup seeding that already succeeded.
+  console.log('\n🌱 Seeding Indian Ladies Fashion catalog + homepage...');
+  try {
+    await seedFashionCatalog(prisma);
+    await seedHomepage(prisma);
+    console.log('\n✨ Fashion catalog + homepage seeded successfully!');
+  } catch (err) {
+    console.error('❌ Fashion catalog seed failed:', err);
+    throw err;
+  }
 }
 
 main()

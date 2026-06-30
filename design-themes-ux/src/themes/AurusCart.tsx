@@ -1,6 +1,6 @@
 ﻿import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useStore, inr } from '@/context/StoreContext';
+import { useStore, inr, cartLineKey } from '@/context/StoreContext';
 import { PRODUCTS } from '@/data/products';
 import {
   ArrowLeft, X, Plus, Minus, ChevronDown, ChevronUp,
@@ -186,8 +186,9 @@ const AurusCart: React.FC = () => {
               {/* Cart item cards */}
               {cart.map(line => {
                 const itemSave = (line.mrp - line.price) * line.qty;
+                const lineKey = cartLineKey(line);
                 return (
-                  <div key={line.id} className="bg-white rounded-lg" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+                  <div key={lineKey} className="bg-white rounded-lg" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
                     <div className="flex gap-4 p-4">
 
                       {/* Product image â€” 120px, white bg, orange badge at bottom */}
@@ -223,7 +224,7 @@ const AurusCart: React.FC = () => {
                           </Link>
                           {/* Dark âœ• button â€” matches CaratLane */}
                           <button
-                            onClick={() => removeFromCart(line.id)}
+                            onClick={() => removeFromCart(lineKey)}
                             className="flex-shrink-0 w-[22px] h-[22px] rounded-full flex items-center justify-center transition-colors"
                             style={{ background: '#333' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#C62828')}
@@ -242,17 +243,19 @@ const AurusCart: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* SKU */}
-                        <p className="text-[11px] text-gray-400 mt-0.5 uppercase tracking-wide">
-                          {line.id.replace(/\W/g,'').toUpperCase().slice(0,8)}-YGS300
-                        </p>
+                        {/* SKU â€” real variant SKU when present, else the parent product id */}
+                        {line.variantSku && (
+                          <p className="text-[11px] text-gray-400 mt-0.5 uppercase tracking-wide">
+                            {line.variantSku}
+                          </p>
+                        )}
 
                         {/* Quantity + delivery link */}
                         <div className="flex items-center justify-between mt-3">
                           <div className="flex items-center gap-2 text-[13px] text-gray-700">
                             <span>Quantity:</span>
                             <button
-                              onClick={() => updateQty(line.id, line.qty - 1)}
+                              onClick={() => updateQty(lineKey, line.qty - 1)}
                               disabled={line.qty <= 1}
                               className="w-[20px] h-[20px] rounded-full border border-gray-400 flex items-center justify-center hover:border-purple-600 disabled:opacity-30 transition-colors"
                             >
@@ -260,7 +263,7 @@ const AurusCart: React.FC = () => {
                             </button>
                             <span className="font-semibold">{line.qty}</span>
                             <button
-                              onClick={() => updateQty(line.id, line.qty + 1)}
+                              onClick={() => updateQty(lineKey, line.qty + 1)}
                               className="w-[20px] h-[20px] rounded-full border border-gray-400 flex items-center justify-center hover:border-purple-600 transition-colors"
                             >
                               <Plus className="w-3 h-3"/>
@@ -275,14 +278,19 @@ const AurusCart: React.FC = () => {
                           </button>
                         </div>
 
-                        {/* Metal/Size chips */}
-                        {line.metalType && (
+                        {/* Variant chips â€” real selected options for API-driven products, legacy metalType for the static demo catalog */}
+                        {line.variantOptions && Object.keys(line.variantOptions).length > 0 ? (
+                          <div className="flex gap-2 mt-2.5 flex-wrap">
+                            {Object.entries(line.variantOptions).map(([k, v]) => (
+                              <span key={k} className="text-[10px] border border-gray-300 text-gray-600 px-2.5 py-0.5 rounded-full bg-white capitalize">
+                                {k}: {v}
+                              </span>
+                            ))}
+                          </div>
+                        ) : line.metalType && (
                           <div className="flex gap-2 mt-2.5">
                             <span className="text-[10px] border border-gray-300 text-gray-600 px-2.5 py-0.5 rounded-full bg-white">
                               {line.metalType}
-                            </span>
-                            <span className="text-[10px] border border-gray-300 text-gray-600 px-2.5 py-0.5 rounded-full bg-white">
-                              Size: 7
                             </span>
                           </div>
                         )}

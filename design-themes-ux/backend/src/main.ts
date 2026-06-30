@@ -67,11 +67,24 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Store-Id', 'X-Theme-Id'],
   });
 
-  // Serve uploaded files — force download to prevent browser script execution
+  // Serve uploaded files.
+  //
+  // Security model:
+  //   - Images: displayed inline, cross-origin permitted so the admin panel
+  //     (port 5174) and storefront can render them. CSP blocks script execution
+  //     even for SVG uploads. nosniff prevents MIME-type confusion.
+  //   - Non-images (HTML, JS, etc.): forced download + same-origin to prevent
+  //     any executable content from running in the browser.
+  //
+  // Cross-Origin-Resource-Policy is set per-file here to override Helmet's
+  // global `same-origin` default, which would otherwise block cross-origin
+  // image loading between the dev frontend (5174) and the API (3000).
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads',
-    setHeaders: (res) => {
-      res.setHeader('Content-Disposition', 'attachment');
+    setHeaders: (res, filePath) => {
+      const isImage = /\.(png|jpe?g|gif|webp|avif|svg|ico)$/i.test(filePath);
+      res.setHeader('Cross-Origin-Resource-Policy', isImage ? 'cross-origin' : 'same-origin');
+      res.setHeader('Content-Disposition', isImage ? 'inline' : 'attachment');
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Security-Policy', "default-src 'none'");
     },

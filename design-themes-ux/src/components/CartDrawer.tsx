@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { useStore, inr } from '@/context/StoreContext';
+import { useStore, inr, cartLineKey } from '@/context/StoreContext';
 import { X, Minus, Plus, Trash2, ShoppingBag, ChevronRight } from 'lucide-react';
 
 interface Props {
@@ -33,24 +33,32 @@ const CartDrawer: React.FC<Props> = ({ accentClass = 'bg-gray-900', fontClass = 
               <p>Your bag is empty.</p>
             </div>
           )}
-          {cart.map(line => (
-            <div key={line.id} className="flex gap-3 border-b pb-4">
-              <img src={line.image} alt={line.name} className="w-20 h-20 rounded-lg object-cover bg-gray-100" />
-              <div className="flex-1">
-                <p className="font-semibold text-sm leading-snug">{line.name}</p>
-                <p className="text-xs text-gray-500">{line.category}</p>
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center border rounded-lg">
-                    <button className="px-2 py-1" onClick={() => updateQty(line.id, line.qty - 1)}><Minus className="w-3 h-3" /></button>
-                    <span className="px-2 text-sm">{line.qty}</span>
-                    <button className="px-2 py-1" onClick={() => updateQty(line.id, line.qty + 1)}><Plus className="w-3 h-3" /></button>
+          {cart.map(line => {
+            const key = cartLineKey(line);
+            return (
+              <div key={key} className="flex gap-3 border-b pb-4">
+                <img src={line.image} alt={line.name} className="w-20 h-20 rounded-lg object-cover bg-gray-100" />
+                <div className="flex-1">
+                  <p className="font-semibold text-sm leading-snug">{line.name}</p>
+                  <p className="text-xs text-gray-500">{line.category}</p>
+                  {line.variantOptions && Object.keys(line.variantOptions).length > 0 && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {Object.entries(line.variantOptions).map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center border rounded-lg">
+                      <button className="px-2 py-1" onClick={() => updateQty(key, line.qty - 1)}><Minus className="w-3 h-3" /></button>
+                      <span className="px-2 text-sm">{line.qty}</span>
+                      <button className="px-2 py-1" onClick={() => updateQty(key, line.qty + 1)}><Plus className="w-3 h-3" /></button>
+                    </div>
+                    <span className="font-bold text-sm">{inr(line.price * line.qty)}</span>
                   </div>
-                  <span className="font-bold text-sm">{inr(line.price * line.qty)}</span>
                 </div>
+                <button onClick={() => removeFromCart(key)}><Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" /></button>
               </div>
-              <button onClick={() => removeFromCart(line.id)}><Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" /></button>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 border-t bg-white px-5 py-4">

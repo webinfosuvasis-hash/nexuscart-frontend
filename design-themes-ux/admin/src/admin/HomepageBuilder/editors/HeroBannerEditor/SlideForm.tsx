@@ -150,51 +150,58 @@ const TypeToggle: React.FC<{
 // ─── Main form component ──────────────────────────────────────────────────────
 
 interface SlideFormProps {
-  slide: HeroSlide;
-  onApply: (updated: HeroSlide) => void;
-  onCancel: () => void;
+  slide:     HeroSlide;
+  /** Called immediately on every field change — no "Apply" step required. */
+  onUpdate:  (updated: HeroSlide) => void;
+  /** Called to close the form without further action (changes already committed). */
+  onClose:   () => void;
+  /** Called to revert the slide to the snapshot taken when editing began. */
+  onRevert:  () => void;
 }
 
-const SlideForm: React.FC<SlideFormProps> = ({ slide, onApply, onCancel }) => {
+const SlideForm: React.FC<SlideFormProps> = ({ slide, onUpdate, onClose, onRevert }) => {
+  // local mirrors parent but allows fast UI feedback before the parent re-renders
   const [local, setLocal] = useState<HeroSlide>(() => ({ ...slide }));
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // ── Auto-apply: propagate every change to the parent config immediately ──
+  const apply = (updated: HeroSlide) => {
+    setLocal(updated);
+    onUpdate(updated);
+  };
 
   // ── Type switch — converts between banner and editorial ──────────────────
   const handleTypeChange = (newType: 'banner' | 'editorial') => {
     if (newType === local.type) return;
-    if (newType === 'banner') {
-      setLocal({
-        id: local.id, type: 'banner', isEnabled: local.isEnabled,
-        src: '', alt: '', linkUrl: '',
-      });
-    } else {
-      setLocal({
-        id: local.id, type: 'editorial', isEnabled: local.isEnabled,
-        backgroundImage: '',
-        overlayGradient: { from: '#3B0764', fromAlpha: 88, to: '#6D28D9', toAlpha: 10 },
-        eyebrowText: '', brandName: '', headlineL1: '', headlineL2: '',
-        headlineL2Color: '#FEF08A', disclaimer: '', ctaText: 'Shop Now', ctaUrl: '/',
-      });
-    }
+    const updated: HeroSlide = newType === 'banner'
+      ? { id: local.id, type: 'banner', isEnabled: local.isEnabled, src: '', alt: '', linkUrl: '' }
+      : {
+          id: local.id, type: 'editorial', isEnabled: local.isEnabled,
+          backgroundImage: '',
+          overlayGradient: { from: '#3B0764', fromAlpha: 88, to: '#6D28D9', toAlpha: 10 },
+          eyebrowText: '', brandName: '', headlineL1: '', headlineL2: '',
+          headlineL2Color: '#FEF08A', disclaimer: '', ctaText: 'Shop Now', ctaUrl: '/',
+        };
     setErrors({});
+    apply(updated);
   };
 
-  // ── Patch helpers ────────────────────────────────────────────────────────
+  // ── Patch helpers — every change immediately propagates to parent ────────
   const patchBanner = (patch: Partial<BannerSlide>) => {
     if (!isBannerSlide(local)) return;
-    setLocal({ ...local, ...patch });
+    apply({ ...local, ...patch });
   };
 
   const patchEditorial = (patch: Partial<EditorialSlide>) => {
     if (!isEditorialSlide(local)) return;
-    setLocal({ ...local, ...patch });
+    apply({ ...local, ...patch });
   };
 
-  // ── Validation ───────────────────────────────────────────────────────────
+  // ── Inline validation (shown as hints, does not block changes) ───────────
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     if (isBannerSlide(local) && !local.src.trim()) {
-      errs.src = 'Image URL is required for a banner slide';
+      errs.src = 'Upload a banner image before publishing';
     }
     if (isEditorialSlide(local)) {
       if (!local.headlineL1.trim()) errs.headlineL1 = 'Headline is required';
@@ -205,9 +212,8 @@ const SlideForm: React.FC<SlideFormProps> = ({ slide, onApply, onCancel }) => {
     return Object.keys(errs).length === 0;
   };
 
-  const handleApply = () => {
-    if (validate()) onApply(local);
-  };
+  // Run validation on every render to show live hints (errors never block save)
+  React.useEffect(() => { validate(); }, [local]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -215,7 +221,7 @@ const SlideForm: React.FC<SlideFormProps> = ({ slide, onApply, onCancel }) => {
       {/* Header */}
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
         <button
-          onClick={onCancel}
+          onClick={onClose}
           className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           aria-label="Back to slide list"
         >
@@ -224,6 +230,9 @@ const SlideForm: React.FC<SlideFormProps> = ({ slide, onApply, onCancel }) => {
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
           Edit Slide {slide.type === 'banner' ? '(Banner)' : '(Editorial)'}
         </h3>
+        <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+          ● Changes auto-saved to form
+        </span>
       </div>
 
       {/* Fields */}
@@ -410,18 +419,19 @@ const SlideForm: React.FC<SlideFormProps> = ({ slide, onApply, onCancel }) => {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
+      <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
         <button
-          onClick={onCancel}
-          className="px-3 py-1.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+          onClick={onRevert}
+          className="px-3 py-1.5 text-sm font-medium text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+          title="Undo all changes to this slide since you opened the editor"
         >
-          Cancel
+          Revert slide
         </button>
         <button
-          onClick={handleApply}
+          onClick={onClose}
           className="px-4 py-1.5 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
         >
-          Apply changes
+          ← Back to slides
         </button>
       </div>
     </div>

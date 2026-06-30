@@ -34,6 +34,8 @@ const HeroContentTab: React.FC<{
   onChange: (c: HeroConfig) => void;
 }> = ({ config, onChange }) => {
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
+  // Snapshot taken when a slide edit begins — used by "Revert slide"
+  const [slideSnapshot, setSlideSnapshot] = useState<HeroSlide | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor,  { activationConstraint: { distance: 6 } }),
@@ -75,11 +77,20 @@ const HeroContentTab: React.FC<{
     return (
       <SlideForm
         slide={editingSlide}
-        onApply={updated => {
+        // Real-time: every field change immediately updates the parent config
+        onUpdate={updated => {
           onChange({ ...config, slides: config.slides.map(s => s.id === updated.id ? updated : s) });
-          setEditingSlideId(null);
         }}
-        onCancel={() => setEditingSlideId(null)}
+        // Close without reverting — changes are already committed to parent config
+        onClose={() => { setEditingSlideId(null); setSlideSnapshot(null); }}
+        // Revert to the snapshot taken when the edit session began
+        onRevert={() => {
+          if (slideSnapshot) {
+            onChange({ ...config, slides: config.slides.map(s => s.id === slideSnapshot.id ? slideSnapshot : s) });
+          }
+          setEditingSlideId(null);
+          setSlideSnapshot(null);
+        }}
       />
     );
   }
@@ -114,7 +125,11 @@ const HeroContentTab: React.FC<{
                 slide={slide}
                 index={idx}
                 isActive={editingSlideId === slide.id}
-                onEdit={id => setEditingSlideId(id)}
+                onEdit={id => {
+                  // Snapshot the current slide state before editing begins
+                  setSlideSnapshot(config.slides.find(s => s.id === id) ?? null);
+                  setEditingSlideId(id);
+                }}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
               />

@@ -1,42 +1,54 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { buildProductWhere, buildOrderBy, SortOption } from '@/common/catalog/product-query.util';
 
 @Injectable()
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Full-text product search. Shares its filter/sort building blocks with
+   * the storefront Product Listing API (`buildProductWhere`/`buildOrderBy`
+   * in `@/common/catalog/product-query.util`) rather than duplicating Prisma
+   * where-clause logic — keeps the two endpoints' filtering behavior
+   * consistent as the catalog grows.
+   */
   async search(storeId: string, query: any) {
     const {
       q, category, minPrice, maxPrice,
       sortBy = 'relevance', page = 1, limit = 24,
     } = query;
 
-    const where: any = { storeId, status: 'ACTIVE' };
-    if (q) {
-      where.OR = [
-        { name: { contains: q } },
-        { description: { contains: q } },
-        { tags: { has: q } },
-      ];
-    }
-    if (category) where.categoryId = category;
-    if (minPrice) where.price = { ...where.price, gte: Number(minPrice) };
-    if (maxPrice) where.price = { ...where.price, lte: Number(maxPrice) };
+    const sortMap: Record<string, SortOption> = {
+      price_asc: 'price_asc', price_desc: 'price_desc', name: 'alphabetical',
+    };
 
-    let orderBy: any = { createdAt: 'desc' };
-    if (sortBy === 'price_asc') orderBy = { price: 'asc' };
-    else if (sortBy === 'price_desc') orderBy = { price: 'desc' };
-    else if (sortBy === 'name') orderBy = { name: 'asc' };
+    const where = await buildProductWhere(this.prisma, storeId, {
+      q,
+      categorySlug: undefined,
+      ...(category ? { ids: undefined } : {}),
+      priceMin: minPrice ? Number(minPrice) : undefined,
+      priceMax: maxPrice ? Number(maxPrice) : undefined,
+    });
+    // `category` here is historically a category ID (not slug) — apply directly.
+    const finalWhere = where && category ? { ...where, categoryId: category } : where;
+
+    if (finalWhere === null) {
+      await this.trackSearch(storeId, q, 0);
+      return { items: [], pagination: { page: Number(page), limit: Number(limit), total: 0, totalPages: 0 }, query: q };
+    }
+
+    const orderBy = buildOrderBy(sortMap[sortBy]);
 
     const [items, total] = await Promise.all([
       this.prisma.product.findMany({
-        where,
+        where: finalWhere,
         skip: (page - 1) * limit,
         take: Number(limit),
         orderBy,
         include: { category: { select: { id: true, name: true } } },
       }),
-      this.prisma.product.count({ where }),
+      this.prisma.product.count({ where: finalWhere }),
     ]);
 
     await this.trackSearch(storeId, q, total);

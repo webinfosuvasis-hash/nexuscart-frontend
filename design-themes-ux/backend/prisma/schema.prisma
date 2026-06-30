@@ -285,17 +285,32 @@ model Attribute {
 }
 
 model AttributeValue {
-  id          String    @id @default(cuid())
+  id          String                  @id @default(cuid())
   attributeId String
   value       String
   label       String
   color       String?
   image       String?
-  sortOrder   Int       @default(0)
-  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  sortOrder   Int                     @default(0)
+  attribute   Attribute               @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  products    ProductAttributeValue[]
 
   @@index([attributeId], map: "attribute_values_attributeId_fkey")
   @@map("attribute_values")
+}
+
+/// Join table linking products to filterable attribute values (fabric,
+/// material, occasion, pattern, etc.) — powers storefront facet filtering.
+model ProductAttributeValue {
+  id               String         @id @default(cuid())
+  productId        String
+  attributeValueId String
+  product          Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeValue   AttributeValue @relation(fields: [attributeValueId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, attributeValueId])
+  @@index([attributeValueId], map: "product_attribute_values_attributeValueId_fkey")
+  @@map("product_attribute_values")
 }
 
 model AttributeSet {
@@ -356,51 +371,52 @@ model Category {
 }
 
 model Product {
-  id                String              @id @default(cuid())
+  id                String                  @id @default(cuid())
   storeId           String
   categoryId        String?
   name              String
   slug              String
-  description       String?             @db.LongText
-  shortDescription  String?             @db.Text
-  price             Decimal             @db.Decimal(10, 2)
-  comparePrice      Decimal?            @db.Decimal(10, 2)
-  costPrice         Decimal?            @db.Decimal(10, 2)
+  description       String?                 @db.LongText
+  shortDescription  String?                 @db.Text
+  price             Decimal                 @db.Decimal(10, 2)
+  comparePrice      Decimal?                @db.Decimal(10, 2)
+  costPrice         Decimal?                @db.Decimal(10, 2)
   sku               String
   barcode           String?
-  weight            Decimal?            @db.Decimal(8, 2)
-  status            ProductStatus       @default(DRAFT)
-  isFeatured        Boolean             @default(false)
-  trackInventory    Boolean             @default(true)
-  stock             Int                 @default(0)
-  lowStockThreshold Int                 @default(5)
-  images            String              @db.LongText
+  weight            Decimal?                @db.Decimal(8, 2)
+  status            ProductStatus           @default(DRAFT)
+  isFeatured        Boolean                 @default(false)
+  trackInventory    Boolean                 @default(true)
+  stock             Int                     @default(0)
+  lowStockThreshold Int                     @default(5)
+  images            String                  @db.LongText
   thumbnail         String?
-  tags              String              @db.LongText
-  seo               String?             @db.Text
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  tags              String                  @db.LongText
+  seo               String?                 @db.Text
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
   deletedAt         DateTime?
-  approvalStatus    ApprovalStatus      @default(DRAFT)
-  badges            String?             @db.LongText
+  approvalStatus    ApprovalStatus          @default(DRAFT)
+  badges            String?                 @db.LongText
   brandId           String?
-  crossSellIds      String?             @db.LongText
-  internalNotes     String?             @db.Text
+  crossSellIds      String?                 @db.LongText
+  internalNotes     String?                 @db.Text
   publishAt         DateTime?
-  relatedProductIds String?             @db.LongText
+  relatedProductIds String?                 @db.LongText
   templateType      String?
-  upsellIds         String?             @db.LongText
+  upsellIds         String?                 @db.LongText
   hsCode            String?
-  priceIncludesTax  Boolean             @default(false)
+  priceIncludesTax  Boolean                 @default(false)
   taxCategory       String?
   orderItems        OrderItem[]
   collections       ProductCollection[]
   reviews           ProductReview[]
   variants          ProductVariant[]
   versions          ProductVersion[]
-  brand             Brand?              @relation(fields: [brandId], references: [id])
-  category          Category?           @relation(fields: [categoryId], references: [id])
-  store             Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  attributeValues   ProductAttributeValue[]
+  brand             Brand?                  @relation(fields: [brandId], references: [id])
+  category          Category?               @relation(fields: [categoryId], references: [id])
+  store             Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, slug])
   @@unique([storeId, sku])
@@ -1326,21 +1342,21 @@ model DocumentVersion {
 }
 
 model BuilderPage {
-  id          String           @id @default(cuid())
+  id          String    @id @default(cuid())
   storeId     String
   /// 'home' | 'collection' | 'product' | 'landing' | 'blog' | 'checkout' | 'custom'
-  pageType    String           @db.VarChar(50)
+  pageType    String    @db.VarChar(50)
   /// Unique per store+pageType: 'home' | 'landing:summer-sale' | 'collection:jewellery'
-  slug        String           @db.VarChar(200)
+  slug        String    @db.VarChar(200)
   /// Merchant-visible display name e.g. "Homepage", "Summer Sale 2026"
-  name        String           @db.VarChar(200)
+  name        String    @db.VarChar(200)
   /// 'LIVE' | 'DRAFT'
-  status      String           @default("LIVE") @db.VarChar(20)
+  status      String    @default("LIVE") @db.VarChar(20)
   /// Incremented on every publish — supports future version history and rollback
-  version     Int              @default(1)
+  version     Int       @default(1)
   publishedAt DateTime?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   store    Store            @relation("BuilderPages", fields: [storeId], references: [id], onDelete: Cascade)
   sections BuilderSection[]
@@ -1351,28 +1367,28 @@ model BuilderPage {
 }
 
 model BuilderSection {
-  id          String      @id @default(cuid())
+  id          String    @id @default(cuid())
   storeId     String
   pageId      String
   /// Strongly typed via SECTION_TYPE enum on the frontend
   /// e.g. 'hero_banner' | 'featured_products' | 'campaign_grid' | 'newsletter'
-  sectionType String      @db.VarChar(80)
+  sectionType String    @db.VarChar(80)
   /// Merchant-editable display name shown in the Homepage Builder overview
-  label       String      @db.VarChar(200)
-  sortOrder   Int         @default(0)
-  isEnabled   Boolean     @default(true)
+  label       String    @db.VarChar(200)
+  sortOrder   Int       @default(0)
+  isEnabled   Boolean   @default(true)
   /// true = read-only in Page Builder (e.g. trust_badges managed from Theme Engine)
-  isLocked    Boolean     @default(false)
+  isLocked    Boolean   @default(false)
   /// 'LIVE' | 'DRAFT' | 'SCHEDULED' | 'DISABLED'
-  status      String      @default("LIVE") @db.VarChar(20)
+  status      String    @default("LIVE") @db.VarChar(20)
   /// Section-specific config JSON — schema per sectionType defined in SectionRegistry.ts (Phase 2+)
   config      Json
   goLiveAt    DateTime?
   expireAt    DateTime?
   /// userId of the last user to modify this section — for audit trail
-  updatedBy   String?     @db.VarChar(191)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  updatedBy   String?   @db.VarChar(191)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   page  BuilderPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
   store Store       @relation("BuilderSections", fields: [storeId], references: [id], onDelete: Cascade)

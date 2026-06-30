@@ -1,17 +1,39 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { ThemeKey, Product } from '@/data/products';
 
+/** Identifies the specific variant being added — distinct from the parent Product. */
+export interface CartVariantInfo {
+  variantId:      string;
+  variantSku:     string;
+  variantOptions?: Record<string, string>;
+}
+
 export interface CartLine extends Product {
   qty: number;
+  variantId?:      string;
+  variantSku?:     string;
+  variantOptions?: Record<string, string>;
+}
+
+/**
+ * A cart line's true identity is productId + variantId (falling back to just
+ * productId for products with no variants) — never productId alone. Two
+ * different variants of the same product (e.g. Red/M vs Blue/L) must occupy
+ * independent lines; merging them by productId would silently drop the
+ * variant distinction and freeze the price/SKU at whichever variant was
+ * added first.
+ */
+export function cartLineKey(line: { id: string; variantId?: string }): string {
+  return line.variantId ? `${line.id}::${line.variantId}` : line.id;
 }
 
 interface StoreState {
   theme: ThemeKey;
   setTheme: (t: ThemeKey) => void;
   cart: CartLine[];
-  addToCart: (p: Product, qty?: number) => void;
-  removeFromCart: (id: string) => void;
-  updateQty: (id: string, qty: number) => void;
+  addToCart: (p: Product, qty?: number, variant?: CartVariantInfo) => void;
+  removeFromCart: (lineKey: string) => void;
+  updateQty: (lineKey: string, qty: number) => void;
   cartCount: number;
   cartTotal: number;
   wishlist: string[];
@@ -36,17 +58,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => { localStorage.setItem('mt_cart', JSON.stringify(cart)); }, [cart]);
   useEffect(() => { localStorage.setItem('mt_wish', JSON.stringify(wishlist)); }, [wishlist]);
 
-  const addToCart = (p: Product, qty = 1) => {
+  const addToCart = (p: Product, qty = 1, variant?: CartVariantInfo) => {
+    const key = cartLineKey({ id: p.id, variantId: variant?.variantId });
     setCart(prev => {
-      const ex = prev.find(l => l.id === p.id);
-      if (ex) return prev.map(l => l.id === p.id ? { ...l, qty: l.qty + qty } : l);
-      return [...prev, { ...p, qty }];
+      const ex = prev.find(l => cartLineKey(l) === key);
+      if (ex) return prev.map(l => cartLineKey(l) === key ? { ...l, qty: l.qty + qty } : l);
+      return [...prev, {
+        ...p, qty,
+        variantId:      variant?.variantId,
+        variantSku:     variant?.variantSku,
+        variantOptions: variant?.variantOptions,
+      }];
     });
     setCartOpen(true);
   };
-  const removeFromCart = (id: string) => setCart(prev => prev.filter(l => l.id !== id));
-  const updateQty = (id: string, qty: number) =>
-    setCart(prev => prev.map(l => l.id === id ? { ...l, qty: Math.max(1, qty) } : l));
+  const removeFromCart = (lineKey: string) => setCart(prev => prev.filter(l => cartLineKey(l) !== lineKey));
+  const updateQty = (lineKey: string, qty: number) =>
+    setCart(prev => prev.map(l => cartLineKey(l) === lineKey ? { ...l, qty: Math.max(1, qty) } : l));
   const toggleWishlist = (id: string) =>
     setWishlist(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 

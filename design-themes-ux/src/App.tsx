@@ -1,6 +1,6 @@
 
 import React, { Suspense, lazy } from "react";
-import { HelmetProvider } from "react-helmet-async";
+import { Helmet, HelmetProvider } from "react-helmet-async";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -31,6 +31,17 @@ const PageLoader = () => (
 
 const App = () => (
   <HelmetProvider>
+  {/* Site-wide OG/Twitter defaults — pages with their own Helmet (e.g. the
+      Product Detail Page) override these per-tag via react-helmet-async's
+      dedup, rather than duplicating raw <meta> tags from index.html. */}
+  <Helmet>
+    <meta property="og:title" content="Diverse ECommerce Themes" />
+    <meta property="og:description" content="Design distinct eCommerce themes in React, each offering unique user experiences across diverse industries." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/og.jpg" />
+  </Helmet>
   <ThemeProvider defaultTheme="light">
     <StoreProvider>
       <RegistryProvider>
@@ -43,6 +54,11 @@ const App = () => (
                 <Routes>
                   <Route path="/" element={<Index />} />
                   <Route path="/products/:id" element={<ProductPage />} />
+                  <Route path="/category/:categorySlug" element={<ListingPage />} />
+                  <Route path="/collection/:collectionSlug" element={<ListingPage />} />
+                  <Route path="/brand/:brandSlug" element={<ListingPage />} />
+                  <Route path="/search" element={<ListingPage />} />
+                  {/* Legacy routes — kept working, mapped to the same data-driven listing page */}
                   <Route path="/jewellery/:category" element={<ListingPage />} />
                   <Route path="/jewellery" element={<ListingPage />} />
                   <Route path="/cart" element={<CartPage />} />
