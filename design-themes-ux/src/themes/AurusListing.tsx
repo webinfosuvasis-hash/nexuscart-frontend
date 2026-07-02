@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, X, SlidersHorizontal } from 'lucide-react';
-import CartDrawer from '@/components/CartDrawer';
 import AurusHeader from './aurus/AurusHeader';
 import { UI } from './aurus/constants';
 import { useFilters } from '@/hooks/useFilters';
@@ -262,7 +261,6 @@ const AurusListing: React.FC<AurusListingProps> = ({ categorySlug, brandSlug, co
         </div>
       </div>
 
-      <CartDrawer accentClass="bg-purple-800" fontClass="font-sans" />
     </div>
   );
 };

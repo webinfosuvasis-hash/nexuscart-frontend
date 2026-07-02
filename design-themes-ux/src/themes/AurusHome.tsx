@@ -6,8 +6,9 @@ import {
   X, MapPin, RotateCcw, Home, ChevronLeft, ChevronRight,
   Shield, Star, Video, Store, Phone,
 } from 'lucide-react';
-import CartDrawer from '@/components/CartDrawer';
 import AurusHeader from './aurus/AurusHeader';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { UI, SERIF } from './aurus/constants';
 
 const CHIPS = ['All', 'Latest Designs', 'Try at Home', 'Fast Delivery', 'Rings', 'Earrings', 'Necklaces', 'Bracelets'];
@@ -112,7 +113,9 @@ const MiniStars: React.FC<{ r: number }> = ({ r }) => (
 
 /* â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const AurusHome: React.FC = () => {
-  const { addToCart, toggleWishlist, wishlist, cartCount, setCartOpen } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { itemCount: cartCount, setCartOpen } = useCartContext();
+  const { mutate: addToCart } = useAddToCart();
   const products = PRODUCTS.aurus;
   const cats = CATEGORIES.aurus;
   const meta = THEME_META.aurus;
@@ -1463,7 +1466,7 @@ const AurusHome: React.FC = () => {
                     <button
                       className="flex-1 py-2 text-[11px] text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors font-medium"
                       style={UI}
-                      onClick={() => addToCart(p)}
+                      onClick={() => addToCart({ productId: p.id, quantity: 1 }, { onSuccess: () => setCartOpen(true) })}
                     >
                       Add to Bag
                     </button>
@@ -1937,7 +1940,6 @@ const AurusHome: React.FC = () => {
         </div>
       </footer>
 
-      <CartDrawer accentClass="bg-purple-800" fontClass="font-sans" />
     </div>
   );
 };

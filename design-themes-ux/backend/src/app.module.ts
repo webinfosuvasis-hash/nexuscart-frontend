@@ -31,6 +31,14 @@ import { ContentModule }     from './modules/content/content.module';
 import { PageBuilderModule } from './modules/page-builder/page-builder.module';
 import { CacheModule } from './shared/cache/cache.module';
 import { CdnModule }   from './shared/cdn/cdn.module';
+import { CartModule }     from './modules/cart/cart.module';
+import { CheckoutModule } from './modules/checkout/checkout.module';
+import { PaymentOrchestratorModule } from './modules/payment-orchestrator/payment-orchestrator.module';
+import { WebhookModule } from './modules/webhook/webhook.module';
+import { PaymentRecoveryModule } from './modules/payment-recovery/payment-recovery.module';
+import { OutboxProcessorModule }  from './modules/outbox/outbox-processor.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule }     from '@nestjs/schedule';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -55,6 +63,25 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
         REDIS_HOST:              Joi.string().default('localhost'),
         REDIS_PORT:              Joi.number().default(6379),
         CORS_ORIGIN:             Joi.string().optional(),
+        CART_LOCK_TIMEOUT_MINUTES:   Joi.number().default(15),
+        CART_DEBUG:                  Joi.boolean().default(false),
+        CART_GC_BATCH_SIZE:          Joi.number().default(500),
+        CART_ABANDON_AFTER_HOURS:    Joi.number().default(24),
+        CART_EXPIRE_AFTER_DAYS:      Joi.number().default(30),
+        CART_ARCHIVE_AFTER_DAYS:     Joi.number().default(60),
+        CART_READ_THRESHOLD_MINUTES:          Joi.number().default(5),
+        CHECKOUT_SESSION_TIMEOUT_MINUTES:     Joi.number().default(30),
+        CHECKOUT_DEBUG:                       Joi.boolean().default(false),
+        CHECKOUT_DEFAULT_CURRENCY:            Joi.string().default('INR'),
+        STORE_STATE_CODE:                     Joi.string().default('KA'),
+        CHECKOUT_FREE_SHIPPING_THRESHOLD:     Joi.number().default(999),
+        RAZORPAY_WEBHOOK_SECRET:              Joi.string().min(1).required(),
+        STRIPE_WEBHOOK_SECRET:                Joi.string().min(1).required(),
+        RECOVERY_CAPTURED_MIN_AGE_SECONDS:    Joi.number().default(120),
+        RECOVERY_AUTHORIZED_TIMEOUT_MINUTES:  Joi.number().default(30),
+        RECOVERY_MAX_RETRIES:                 Joi.number().default(5),
+        OUTBOX_BATCH_SIZE:                    Joi.number().default(50),
+        OUTBOX_MAX_BACKOFF_MINUTES:           Joi.number().default(60),
       }),
       validationOptions: { allowUnknown: true, abortEarly: false },
     }),
@@ -62,6 +89,8 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
       { name: 'short', ttl: 1000, limit: 20 },
       { name: 'medium', ttl: 60000, limit: 200 },
     ]),
+    EventEmitterModule.forRoot({ wildcard: true, global: true }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     CacheModule,      // @Global — provides CacheService to all modules
     CdnModule,        // @Global — provides CdnService to all modules
@@ -87,6 +116,12 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
     StorefrontModule,
     ContentModule,      // Universal Architecture v2 — Phase 0
     PageBuilderModule,  // Generic page builder — Phase 1B+
+    CartModule,                  // Cart Engine — Phase P3A
+    CheckoutModule,              // Checkout Foundation — Phase P4A
+    PaymentOrchestratorModule,   // Payment Completion & Order Creation — Milestone 5
+    WebhookModule,               // Webhook Processing Layer — Milestone 6
+    PaymentRecoveryModule,       // Payment Recovery & Inventory Cleanup — Milestone 7
+    OutboxProcessorModule,       // Transactional Outbox Processor — Milestone 7
   ],
   providers: [
     // Global JWT guard — all routes protected unless @Public()

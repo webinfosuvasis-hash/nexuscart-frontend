@@ -1,9 +1,10 @@
 ﻿import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { Product } from '@/data/products';
 import { getReviews, getRelated, VARIANTS } from '@/data/reviews';
-import CartDrawer from '@/components/CartDrawer';
 // import ThemeSwitcher from '@/components/ThemeSwitcher';
 import {
   Heart, ChevronDown, ChevronLeft, ChevronRight,
@@ -64,7 +65,9 @@ const Acc: React.FC<{ title: string; children: React.ReactNode; open?: boolean }
    MAIN COMPONENT
 â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
-  const { addToCart, toggleWishlist, wishlist, cartCount, setCartOpen } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { setCartOpen } = useCartContext();
+  const { mutate: addToCartMutation, isPending: addingToCart } = useAddToCart();
   const related  = getRelated(product, 'aurus', 6);
   const reviews  = getReviews(product);
   const variant  = VARIANTS.aurus;
@@ -358,11 +361,19 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
             {/* CTA */}
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => addToCart(product)}
-                className="flex-1 bg-[#6B21A8] hover:bg-[#581C87] text-white py-3.5 text-[14px] font-bold tracking-wide transition-colors rounded-sm"
+                onClick={() =>
+                  addToCartMutation(
+                    { productId: product.id, quantity: 1 },
+                    { onSuccess: () => setCartOpen(true) },
+                  )
+                }
+                disabled={addingToCart}
+                className="flex-1 bg-[#6B21A8] hover:bg-[#581C87] text-white py-3.5 text-[14px] font-bold tracking-wide transition-colors rounded-sm disabled:opacity-60 flex items-center justify-center gap-2"
                 style={UI}
               >
-                ADD TO BAG
+                {addingToCart ? (
+                  <><span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" /> Adding…</>
+                ) : 'ADD TO BAG'}
               </button>
               <button
                 onClick={() => toggleWishlist(product.id)}
@@ -639,7 +650,16 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
                       View Similar
                     </Link>
                     <div className="w-px bg-gray-100"/>
-                    <button onClick={() => addToCart(p)} className="flex-1 py-2 text-[10px] text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors font-medium" style={UI}>
+                    <button
+                      onClick={() =>
+                        addToCartMutation(
+                          { productId: p.id, quantity: 1 },
+                          { onSuccess: () => setCartOpen(true) },
+                        )
+                      }
+                      className="flex-1 py-2 text-[10px] text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors font-medium"
+                      style={UI}
+                    >
                       Add to Bag
                     </button>
                   </div>
@@ -728,7 +748,6 @@ const AurusProduct: React.FC<{ product: Product }> = ({ product }) => {
         </div>
       </footer>
 
-      <CartDrawer accentClass="bg-purple-800" fontClass="font-sans"/>
       {/* <ThemeSwitcher/> */}
     </div>
   );

@@ -5,6 +5,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import * as express from 'express';
+import * as cookieParser from 'cookie-parser';
 import { join } from 'path';
 import * as fs from 'fs';
 import { AppModule } from './app.module';
@@ -39,6 +40,13 @@ async function bootstrap() {
   // Security
   app.use(helmet());
 
+  // Cookie parser — required for httpOnly cart session cookie
+  app.use(cookieParser());
+
+  // Preserve raw bytes for webhook HMAC verification BEFORE json() consumes the stream.
+  // express sets req._body=true after parsing, so express.json() below skips these routes.
+  app.use('/api/v1/webhooks', express.raw({ type: '*/*', limit: '1mb' }));
+
   // Limit JSON and URL-encoded body size to prevent payload flooding
   app.use(express.json({ limit: '50kb' }));
   app.use(express.urlencoded({ extended: true, limit: '50kb' }));
@@ -64,7 +72,11 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Store-Id', 'X-Theme-Id'],
+    allowedHeaders: [
+      'Content-Type', 'Authorization', 'X-Store-Id', 'X-Theme-Id',
+      'X-Session-Id', 'Idempotency-Key', 'X-Request-ID', 'X-Correlation-ID',
+      'X-Cart-Debug', 'traceparent',
+    ],
   });
 
   // Serve uploaded files.

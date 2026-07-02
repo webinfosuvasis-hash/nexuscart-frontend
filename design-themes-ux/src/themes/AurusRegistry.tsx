@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useRegistry, OCCASIONS, OccasionKey } from '@/context/RegistryContext';
-import { useStore, inr } from '@/context/StoreContext';
+import { inr } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import {
   Check, Share2, Copy, Trash2, ShoppingBag, ArrowLeft,
   Edit2, Gift, CheckCircle2, Heart,
@@ -167,7 +169,8 @@ const RegistryCard: React.FC<{
   isOwner?: boolean;
 }> = ({ item, isOwner = true }) => {
   const { removeFromRegistry, markPurchased } = useRegistry();
-  const { addToCart } = useStore();
+  const { mutate: addToCart } = useAddToCart();
+  const { setCartOpen } = useCartContext();
   const disc = Math.round(((item.product.mrp - item.product.price) / item.product.mrp) * 100);
 
   return (
@@ -230,7 +233,7 @@ const RegistryCard: React.FC<{
       <div className="flex border-t border-gray-100">
         {!item.isPurchased && !isOwner && (
           <button
-            onClick={() => { addToCart(item.product); markPurchased(item.product.id, item.occasion); }}
+            onClick={() => { addToCart({ productId: item.product.id, quantity: 1 }, { onSuccess: () => setCartOpen(true) }); markPurchased(item.product.id, item.occasion); }}
             className="flex-1 py-2 text-[10px] font-semibold text-white bg-purple-700 hover:bg-purple-800 flex items-center justify-center gap-1 transition-colors"
             style={UI}
           >
@@ -240,7 +243,7 @@ const RegistryCard: React.FC<{
         {!item.isPurchased && isOwner && (
           <>
             <button
-              onClick={() => addToCart(item.product)}
+              onClick={() => addToCart({ productId: item.product.id, quantity: 1 }, { onSuccess: () => setCartOpen(true) })}
               className="flex-1 py-2 text-[10px] font-medium text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors"
               style={UI}
             >

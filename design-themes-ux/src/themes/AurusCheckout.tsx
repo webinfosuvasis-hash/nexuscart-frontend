@@ -1,9 +1,10 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useStore, inr, cartLineKey } from '@/context/StoreContext';
+import { inr } from '@/context/StoreContext';
+import { useCart } from '@/hooks/useCart';
 import {
   ArrowLeft, Check, ChevronRight, MapPin, CreditCard,
-  Smartphone, Wallet, Truck, Lock, ShoppingBag,
+  Smartphone, Wallet, Truck, Lock, ShoppingBag, Loader2,
 } from 'lucide-react';
 
 const UI    = { fontFamily: 'system-ui, -apple-system, sans-serif' };
@@ -13,10 +14,10 @@ const PAYMENT_METHODS = [
   { id: 'upi',  label: 'UPI',              icon: Smartphone, sub: 'Google Pay, PhonePe, Paytm'   },
   { id: 'card', label: 'Credit / Debit Card', icon: CreditCard, sub: 'Visa, Mastercard, RuPay'    },
   { id: 'cod',  label: 'Cash on Delivery',  icon: Truck,      sub: 'Pay when you receive'         },
-  { id: 'emi',  label: 'EMI',              icon: Wallet,     sub: 'No-cost EMI on 3â€“12 months'   },
+  { id: 'emi',  label: 'EMI',              icon: Wallet,     sub: 'No-cost EMI on 3–12 months'   },
 ];
 
-/* â”€â”€â”€ Order success overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Order success overlay ──────────────────────────────────────── */
 const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => void }> = ({ orderId, total, onClose }) => (
   <div className="fixed inset-0 z-[200] flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
     <div className="bg-white rounded-2xl shadow-2xl max-w-[420px] w-full p-8 text-center" style={UI}>
@@ -38,7 +39,7 @@ const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => vo
         </div>
         <div className="flex justify-between">
           <span>Estimated delivery</span>
-          <span className="font-semibold text-green-600">5â€“7 working days</span>
+          <span className="font-semibold text-green-600">5–7 working days</span>
         </div>
         <div className="flex justify-between">
           <span>Shipping</span>
@@ -60,12 +61,16 @@ const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => vo
   </div>
 );
 
-/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+/* ═══════════════════════════════════════════════════════════════════
    CHECKOUT PAGE
-â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+═══════════════════════════════════════════════════════════════════ */
 const AurusCheckout: React.FC = () => {
-  const { cart, cartTotal } = useStore();
   const navigate = useNavigate();
+  const { data: cartData, isLoading } = useCart();
+
+  const items    = cartData?.items ?? [];
+  const totals   = cartData?.totals;
+  const codFee   = 50;
 
   /* Address */
   const [addr, setAddr] = useState({ name:'', phone:'', pincode:'', address:'', city:'', state:'', landmark:'' });
@@ -74,18 +79,25 @@ const AurusCheckout: React.FC = () => {
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [orderId] = useState(() => 'ORD' + Math.random().toString(36).slice(2,8).toUpperCase());
 
-  const subtotal   = cart.reduce((s, l) => s + l.mrp   * l.qty, 0);
-  const totalSaved = cart.reduce((s, l) => s + (l.mrp - l.price) * l.qty, 0);
-  const totalCost  = cart.reduce((s, l) => s + l.price * l.qty, 0);
-
-  const addrFilled = addr.name && addr.phone.length === 10 && addr.pincode.length === 6 && addr.address && addr.city;
+  const grandTotal  = (totals?.grandTotal ?? 0) + (payment === 'cod' ? codFee : 0);
+  const addrFilled  = addr.name && addr.phone.length === 10 && addr.pincode.length === 6 && addr.address && addr.city;
 
   const handleConfirm = () => {
     if (!addrFilled) return;
     setOrderSuccess(true);
   };
 
-  if (cart.length === 0) {
+  /* Loading */
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F5F3FA]" style={UI}>
+        <Loader2 className="w-10 h-10 animate-spin text-purple-600"/>
+      </div>
+    );
+  }
+
+  /* Empty cart */
+  if (items.length === 0) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F3FA]" style={UI}>
         <ShoppingBag className="w-14 h-14 text-purple-200 mb-4"/>
@@ -111,18 +123,18 @@ const AurusCheckout: React.FC = () => {
           </div>
           {/* Step indicator */}
           <div className="hidden sm:flex items-center gap-1.5 text-[11px]" style={UI}>
-            <span className="text-purple-700 font-bold">â‘  Address</span>
+            <span className="text-purple-700 font-bold">① Address</span>
             <ChevronRight className="w-3 h-3 text-gray-300"/>
-            <span className="text-gray-400">â‘¡ Payment</span>
+            <span className="text-gray-400">② Payment</span>
             <ChevronRight className="w-3 h-3 text-gray-300"/>
-            <span className="text-gray-400">â‘¢ Confirm</span>
+            <span className="text-gray-400">③ Confirm</span>
           </div>
         </div>
       </header>
 
       <div className="max-w-[1280px] mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
 
-        {/* â”€â”€ LEFT: Address + Payment â”€â”€ */}
+        {/* ── LEFT: Address + Payment ── */}
         <div className="space-y-5">
 
           {/* Delivery Address */}
@@ -163,7 +175,6 @@ const AurusCheckout: React.FC = () => {
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left"
                     style={{ borderColor: sel ? '#7C3AED' : '#E5E7EB', background: sel ? '#FAF5FF' : '#fff' }}
                   >
-                    {/* Radio */}
                     <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0"
                       style={{ borderColor: sel ? '#7C3AED' : '#CBD5E1' }}>
                       {sel && <div className="w-2 h-2 rounded-full bg-purple-700"/>}
@@ -198,31 +209,31 @@ const AurusCheckout: React.FC = () => {
             {/* COD note */}
             {payment === 'cod' && (
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-[12px] text-amber-800">
-                â‚¹50 COD convenience fee will be added at order confirmation.
+                ₹50 COD convenience fee will be added at order confirmation.
               </div>
             )}
           </div>
         </div>
 
-        {/* â”€â”€ RIGHT: Order Summary â”€â”€ */}
+        {/* ── RIGHT: Order Summary ── */}
         <div className="space-y-4">
 
           {/* Items list */}
           <div className="bg-white rounded-xl shadow-sm p-5">
             <h2 className="text-[14px] font-bold text-gray-900 mb-4">
-              Order Summary ({cart.length} item{cart.length > 1 ? 's' : ''})
+              Order Summary ({items.length} item{items.length > 1 ? 's' : ''})
             </h2>
             <div className="space-y-3">
-              {cart.map(line => (
-                <div key={cartLineKey(line)} className="flex items-center gap-3">
+              {items.map(item => (
+                <div key={item.id} className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
-                    <img src={line.image} alt={line.name} loading="lazy" className="w-full h-full object-cover"/>
+                    <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover"/>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-medium text-gray-800 line-clamp-1">{line.name}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">Qty: {line.qty}</p>
+                    <p className="text-[12px] font-medium text-gray-800 line-clamp-1">{item.name}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">Qty: {item.quantity}</p>
                   </div>
-                  <span className="text-[13px] font-bold text-gray-900 flex-shrink-0">{inr(line.price * line.qty)}</span>
+                  <span className="text-[13px] font-bold text-gray-900 flex-shrink-0">{inr(item.lineTotal)}</span>
                 </div>
               ))}
             </div>
@@ -230,15 +241,19 @@ const AurusCheckout: React.FC = () => {
 
           {/* Price breakdown */}
           <div className="bg-white rounded-xl shadow-sm px-5 py-4 space-y-2.5">
-            <PriceRow label="Subtotal"           value={inr(subtotal)}/>
-            <PriceRow label="You Saved"          value={`â€“ ${inr(totalSaved)}`} valueColor="#00897B"/>
-            <PriceRow label="Coupon Discount"    value="â€”"/>
-            <PriceRow label="Shipping"           value="FREE" valueColor="#00897B"/>
-            {payment === 'cod' && <PriceRow label="COD Fee" value={inr(50)}/>}
+            <PriceRow label="Subtotal"        value={inr(totals?.subtotal ?? 0)}/>
+            {(totals?.discount ?? 0) > 0 && (
+              <PriceRow label="Discount" value={`− ${inr(totals!.discount)}`} valueColor="#00897B"/>
+            )}
+            {(totals?.promotionDiscount ?? 0) > 0 && (
+              <PriceRow label="Coupon Discount" value={`− ${inr(totals!.promotionDiscount)}`} valueColor="#00897B"/>
+            )}
+            <PriceRow label="Shipping" value={totals?.shippingCost === 0 ? 'FREE' : inr(totals?.shippingCost ?? 0)} valueColor="#00897B"/>
+            {payment === 'cod' && <PriceRow label="COD Fee" value={inr(codFee)}/>}
             <div className="h-px bg-gray-200 my-1"/>
             <div className="flex items-center justify-between">
               <span className="text-[15px] font-bold text-gray-900">Total</span>
-              <span className="text-[16px] font-black text-gray-900">{inr(totalCost + (payment === 'cod' ? 50 : 0))}</span>
+              <span className="text-[16px] font-black text-gray-900">{inr(grandTotal)}</span>
             </div>
           </div>
 
@@ -249,7 +264,7 @@ const AurusCheckout: React.FC = () => {
             className="w-full py-4 text-white text-[14px] font-black tracking-[0.12em] uppercase rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98]"
             style={{ background: addrFilled ? 'linear-gradient(90deg,#9333EA,#7B22F9)' : '#9CA3AF', boxShadow: addrFilled ? '0 4px 14px rgba(124,58,237,0.4)' : 'none' }}
           >
-            {addrFilled ? `CONFIRM & PAY ${inr(totalCost + (payment === 'cod' ? 50 : 0))}` : 'FILL ADDRESS TO CONTINUE'}
+            {addrFilled ? `CONFIRM & PAY ${inr(grandTotal)}` : 'FILL ADDRESS TO CONTINUE'}
           </button>
 
           {/* Security note */}
@@ -264,7 +279,7 @@ const AurusCheckout: React.FC = () => {
       {orderSuccess && (
         <OrderSuccess
           orderId={orderId}
-          total={totalCost + (payment === 'cod' ? 50 : 0)}
+          total={grandTotal}
           onClose={() => { setOrderSuccess(false); navigate('/jewellery/rings'); }}
         />
       )}
@@ -272,7 +287,7 @@ const AurusCheckout: React.FC = () => {
   );
 };
 
-/* â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── Helpers ─────────────────────────────────────────────────────────────── */
 const Field: React.FC<{
   label: string; value: string; onChange: (v: string) => void;
   placeholder?: string; type?: string; maxLen?: number;
@@ -300,4 +315,3 @@ const PriceRow: React.FC<{ label: string; value: string; valueColor?: string }> 
 );
 
 export default AurusCheckout;
-

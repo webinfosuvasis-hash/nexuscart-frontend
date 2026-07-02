@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { Product } from '@/data/products';
 import { getReviews, getRelated, VARIANTS } from '@/data/reviews';
 import { Stars, QtyPicker, Gallery } from '@/components/product/Bits';
-import CartDrawer from '@/components/CartDrawer';
 import { ArrowLeft, ShoppingBag, Heart, Truck, Gift, ShieldCheck, ChevronRight } from 'lucide-react';
 
 const CraftProduct: React.FC<{ product: Product }> = ({ product }) => {
-  const { addToCart, toggleWishlist, wishlist, cartCount, setCartOpen } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { itemCount: cartCount, setCartOpen } = useCartContext();
+  const { mutate: addToCart, isPending: addingToCart } = useAddToCart();
   const related = getRelated(product, 'craft');
   const reviews = getReviews(product);
   const variant = VARIANTS.craft;
@@ -61,7 +64,13 @@ const CraftProduct: React.FC<{ product: Product }> = ({ product }) => {
 
           <div className="mt-6 flex items-center gap-4 font-sans">
             <QtyPicker qty={qty} setQty={setQty} className="border-2 border-amber-300 rounded-full" btnClass="px-3 py-2 text-amber-800" />
-            <button onClick={() => addToCart(product, qty)} className="flex-1 bg-amber-700 hover:bg-amber-800 text-white py-3 rounded-full font-semibold">Add to Bag</button>
+            <button
+              onClick={() => addToCart({ productId: product.id, quantity: qty }, { onSuccess: () => setCartOpen(true) })}
+              disabled={addingToCart}
+              className="flex-1 bg-amber-700 hover:bg-amber-800 disabled:opacity-60 text-white py-3 rounded-full font-semibold"
+            >
+              {addingToCart ? 'Adding…' : 'Add to Bag'}
+            </button>
             <button onClick={() => toggleWishlist(product.id)} className="p-3 rounded-full border-2 border-amber-300">
               <Heart className={`w-5 h-5 ${wished ? 'fill-red-500 text-red-500' : 'text-amber-700'}`} />
             </button>
@@ -108,8 +117,6 @@ const CraftProduct: React.FC<{ product: Product }> = ({ product }) => {
           ))}
         </div>
       </section>
-
-      <CartDrawer accentClass="bg-amber-700" fontClass="font-sans" />
     </div>
   );
 };

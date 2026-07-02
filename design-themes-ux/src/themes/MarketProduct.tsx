@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, inr } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { Product } from '@/data/products';
 import { getReviews, getRelated, VARIANTS } from '@/data/reviews';
 import { Stars, QtyPicker, Gallery } from '@/components/product/Bits';
-import CartDrawer from '@/components/CartDrawer';
 import { ArrowLeft, ShoppingCart, Heart, Star, Truck, RotateCcw, ShieldCheck, MapPin, ChevronRight, Check } from 'lucide-react';
 
 const MarketProduct: React.FC<{ product: Product }> = ({ product }) => {
-  const { addToCart, toggleWishlist, wishlist, cartCount, setCartOpen } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { itemCount: cartCount, setCartOpen } = useCartContext();
+  const { mutate: addToCart, isPending: addingToCart } = useAddToCart();
   const related = getRelated(product, 'market');
   const reviews = getReviews(product);
   const variant = VARIANTS.market;
@@ -39,8 +42,20 @@ const MarketProduct: React.FC<{ product: Product }> = ({ product }) => {
         <div className="lg:col-span-4 bg-white rounded-lg p-4 lg:sticky lg:top-20 h-fit">
           <Gallery images={images} alt={product.name} rounded="rounded-lg" thumbActiveClass="ring-2 ring-blue-600" />
           <div className="grid grid-cols-2 gap-3 mt-4">
-            <button onClick={() => addToCart(product, qty)} className="bg-yellow-400 hover:bg-yellow-500 text-blue-900 font-bold py-3 rounded-lg flex items-center justify-center gap-2"><ShoppingCart className="w-4 h-4" /> Add to Cart</button>
-            <button onClick={() => addToCart(product, qty)} className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-lg">Buy Now</button>
+            <button
+              onClick={() => addToCart({ productId: product.id, quantity: qty }, { onSuccess: () => setCartOpen(true) })}
+              disabled={addingToCart}
+              className="bg-yellow-400 hover:bg-yellow-500 disabled:opacity-60 text-blue-900 font-bold py-3 rounded-lg flex items-center justify-center gap-2"
+            >
+              <ShoppingCart className="w-4 h-4" /> {addingToCart ? 'Adding…' : 'Add to Cart'}
+            </button>
+            <button
+              onClick={() => addToCart({ productId: product.id, quantity: qty }, { onSuccess: () => setCartOpen(true) })}
+              disabled={addingToCart}
+              className="bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-lg"
+            >
+              Buy Now
+            </button>
           </div>
         </div>
 
@@ -95,7 +110,13 @@ const MarketProduct: React.FC<{ product: Product }> = ({ product }) => {
               <div key={i} className="flex items-center gap-2"><Icon className="w-4 h-4 text-blue-600" /> {t}</div>
             ))}
           </div>
-          <button onClick={() => addToCart(product, qty)} className="w-full mt-5 bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold">Add to Cart</button>
+          <button
+            onClick={() => addToCart({ productId: product.id, quantity: qty }, { onSuccess: () => setCartOpen(true) })}
+            disabled={addingToCart}
+            className="w-full mt-5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white py-2.5 rounded-lg font-semibold"
+          >
+            {addingToCart ? 'Adding…' : 'Add to Cart'}
+          </button>
         </div>
       </section>
 
@@ -135,8 +156,6 @@ const MarketProduct: React.FC<{ product: Product }> = ({ product }) => {
           </div>
         </div>
       </section>
-
-      <CartDrawer accentClass="bg-blue-600" />
     </div>
   );
 };

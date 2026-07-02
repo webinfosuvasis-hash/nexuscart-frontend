@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronRight, Heart } from 'lucide-react';
 import { useStore } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { useProductDetail } from '@/hooks/useProductDetail';
 import { useRecentlyViewed } from '@/hooks/useRecentlyViewed';
 import { ApiError, type ProductVariant } from '@/lib/storefrontApi';
-import CartDrawer from '@/components/CartDrawer';
 import AurusHeader from './aurus/AurusHeader';
 import { UI, SERIF } from './aurus/constants';
 import ProductGallery from '@/components/storefront/pdp/ProductGallery';
@@ -20,7 +21,6 @@ import RecentlyViewedSection from '@/components/storefront/pdp/RecentlyViewedSec
 import ProductJsonLd from '@/components/storefront/pdp/ProductJsonLd';
 import StarRow from '@/components/storefront/pdp/StarRow';
 import { absoluteUrl } from '@/lib/seo';
-import type { Product } from '@/data/products';
 
 export interface AurusProductDetailProps {
   id: string;
@@ -37,7 +37,9 @@ export interface AurusProductDetailProps {
  */
 const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChange }) => {
   const navigate = useNavigate();
-  const { addToCart, toggleWishlist, wishlist } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { setCartOpen } = useCartContext();
+  const { mutate: addToCartMutation, isPending: addingToCart } = useAddToCart();
   const { ids: recentlyViewedIds, addViewed } = useRecentlyViewed();
   const [headerSearch, setHeaderSearch] = useState('');
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
@@ -117,15 +119,6 @@ const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChang
     : 0;
   const galleryImages = selectedVariant?.image ? [selectedVariant.image, ...product.images] : product.images;
 
-  const cartProduct: Product = {
-    id: product.id, theme: 'aurus', name: product.name, category: product.category?.name ?? '',
-    price: effectivePrice, mrp: effectiveMrp, image: selectedVariant?.image || product.images[0] || '',
-    badge: product.badges[0], rating: product.rating, reviews: product.reviewCount, desc: product.shortDescription ?? '',
-  };
-  const cartVariant = selectedVariant
-    ? { variantId: selectedVariant.id, variantSku: selectedVariant.sku, variantOptions: selectedVariant.options }
-    : undefined;
-
   return (
     <div className="min-h-screen bg-white" style={UI}>
       <ProductJsonLd product={product} />
@@ -194,12 +187,27 @@ const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChang
 
             <div className="flex gap-3 mt-5">
               <button
-                onClick={() => addToCart(cartProduct, 1, cartVariant)}
-                disabled={effectiveStock <= 0}
-                className="flex-1 bg-[#6B21A8] hover:bg-[#581C87] text-white py-3.5 text-[14px] font-bold tracking-wide transition-colors rounded-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() =>
+                  addToCartMutation(
+                    {
+                      productId:  product.id,
+                      quantity:   1,
+                      variantId:  selectedVariant?.id,
+                    },
+                    { onSuccess: () => setCartOpen(true) },
+                  )
+                }
+                disabled={effectiveStock <= 0 || addingToCart}
+                className="flex-1 bg-[#6B21A8] hover:bg-[#581C87] text-white py-3.5 text-[14px] font-bold tracking-wide transition-colors rounded-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 style={UI}
+                aria-busy={addingToCart}
               >
-                {effectiveStock > 0 ? 'ADD TO BAG' : 'OUT OF STOCK'}
+                {addingToCart ? (
+                  <>
+                    <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                    Adding…
+                  </>
+                ) : effectiveStock > 0 ? 'ADD TO BAG' : 'OUT OF STOCK'}
               </button>
               <button
                 onClick={() => toggleWishlist(product.id)}
@@ -228,7 +236,6 @@ const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChang
       <ProductCarousel title="Similar Products" products={product.similarProducts} />
       <RecentlyViewedSection ids={recentlyViewedIds} excludeProductId={product.id} />
 
-      <CartDrawer accentClass="bg-purple-800" fontClass="font-sans" />
     </div>
   );
 };

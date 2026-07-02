@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, Gift, Star } from 'lucide-react';
 import { useStore, inr } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { useRegistry, OCCASIONS, OccasionKey } from '@/context/RegistryContext';
 import type { Product } from '@/data/products';
 import { UI } from '@/themes/aurus/constants';
@@ -15,8 +17,8 @@ const MiniStars: React.FC<{ r: number }> = ({ r }) => (
   </span>
 );
 
-/** Bridges the API's ListingProduct shape into the cart/registry contexts' Product type. */
-function toCartProduct(p: ListingProduct): Product {
+/** Bridges the API's ListingProduct shape into the registry contexts' Product type. */
+function toRegistryProduct(p: ListingProduct): Product {
   return {
     id: p.id, theme: 'aurus', name: p.name, category: p.category?.name ?? '',
     price: p.price, mrp: p.mrp, image: p.image, badge: p.badge,
@@ -31,7 +33,9 @@ interface ProductGridProps {
 
 /** Product card grid — preserves the original AurusListing card markup/styling, now driven by live API data. */
 const ProductGrid: React.FC<ProductGridProps> = ({ products, isFetching }) => {
-  const { addToCart, toggleWishlist, wishlist } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { setCartOpen } = useCartContext();
+  const { mutate: addToCart, isPending: addingToCart } = useAddToCart();
   const { addToRegistry, isInRegistry } = useRegistry();
   const [registryOpen, setRegistryOpen] = useState<string | null>(null);
 
@@ -50,7 +54,7 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products, isFetching }) => {
     >
       {products.map((p) => {
         const wished = wishlist.includes(p.id);
-        const cartProduct = toCartProduct(p);
+        const registryProduct = toRegistryProduct(p);
 
         return (
           <div key={p.id} className="group bg-white rounded-xl overflow-hidden border border-gray-100">
@@ -90,7 +94,7 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products, isFetching }) => {
                       return (
                         <button
                           key={occ}
-                          onClick={() => { addToRegistry(cartProduct, occ); setRegistryOpen(null); }}
+                          onClick={() => { addToRegistry(registryProduct, occ); setRegistryOpen(null); }}
                           className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg transition-all border"
                           style={{ background: inR ? o.bg : '#fff', borderColor: inR ? o.border : '#E5E7EB', color: o.color }}
                         >
@@ -151,8 +155,13 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products, isFetching }) => {
               <button
                 className="flex-1 py-2.5 text-[11px] text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors font-medium disabled:opacity-40"
                 style={UI}
-                disabled={p.stock <= 0}
-                onClick={() => addToCart(cartProduct)}
+                disabled={p.stock <= 0 || addingToCart}
+                onClick={() =>
+                  addToCart(
+                    { productId: p.id, quantity: 1 },
+                    { onSuccess: () => setCartOpen(true) },
+                  )
+                }
               >
                 {p.stock > 0 ? 'Add to Bag' : 'Out of Stock'}
               </button>

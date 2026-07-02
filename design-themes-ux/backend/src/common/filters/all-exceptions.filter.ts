@@ -21,15 +21,24 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let message = 'Internal server error';
     let errors: unknown = undefined;
 
+    let extra: Record<string, unknown> = {};
+
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
       if (typeof exceptionResponse === 'string') {
         message = exceptionResponse;
       } else if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
-        const res = exceptionResponse as any;
-        message = res.message || message;
+        const res = exceptionResponse as Record<string, unknown>;
+        message = (res.message as string) || message;
         errors = res.errors;
+        // Pass through any extra domain fields the service placed on the exception body.
+        // 'message', 'errors', and 'statusCode' are handled explicitly above.
+        // 'error' is intentionally included so domain codes like CHECKOUT_ALREADY_ACTIVE pass through.
+        const reserved = new Set(['message', 'errors', 'statusCode']);
+        for (const [k, v] of Object.entries(res)) {
+          if (!reserved.has(k)) extra[k] = v;
+        }
       }
     } else if (exception instanceof Error) {
       this.logger.error(`Unhandled exception: ${exception.message}`, exception.stack);
@@ -46,6 +55,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       path: request.url,
       message,
       ...(errors && { errors }),
+      ...extra,
     });
   }
 }

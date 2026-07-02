@@ -8,7 +8,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { StoreProvider } from "@/context/StoreContext";
+import { CartProvider, CartErrorBoundary } from "@/context/CartContext";
 import { RegistryProvider } from "@/context/RegistryContext";
+import CartDrawer from "@/components/CartDrawer";
 
 const Index        = lazy(() => import("./pages/Index"));
 const ProductPage  = lazy(() => import("./pages/ProductPage"));
@@ -31,9 +33,6 @@ const PageLoader = () => (
 
 const App = () => (
   <HelmetProvider>
-  {/* Site-wide OG/Twitter defaults — pages with their own Helmet (e.g. the
-      Product Detail Page) override these per-tag via react-helmet-async's
-      dedup, rather than duplicating raw <meta> tags from index.html. */}
   <Helmet>
     <meta property="og:title" content="Diverse ECommerce Themes" />
     <meta property="og:description" content="Design distinct eCommerce themes in React, each offering unique user experiences across diverse industries." />
@@ -46,29 +45,35 @@ const App = () => (
     <StoreProvider>
       <RegistryProvider>
         <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route path="/" element={<Index />} />
-                  <Route path="/products/:id" element={<ProductPage />} />
-                  <Route path="/category/:categorySlug" element={<ListingPage />} />
-                  <Route path="/collection/:collectionSlug" element={<ListingPage />} />
-                  <Route path="/brand/:brandSlug" element={<ListingPage />} />
-                  <Route path="/search" element={<ListingPage />} />
-                  {/* Legacy routes — kept working, mapped to the same data-driven listing page */}
-                  <Route path="/jewellery/:category" element={<ListingPage />} />
-                  <Route path="/jewellery" element={<ListingPage />} />
-                  <Route path="/cart" element={<CartPage />} />
-                  <Route path="/checkout" element={<CheckoutPage />} />
-                  <Route path="/registry" element={<RegistryPage />} />
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Suspense>
-            </BrowserRouter>
-          </TooltipProvider>
+          <CartErrorBoundary>
+          <CartProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                {/* Single global cart drawer — present on every page */}
+                <CartDrawer accentClass="bg-purple-800" />
+
+                <Suspense fallback={<PageLoader />}>
+                  <Routes>
+                    <Route path="/" element={<Index />} />
+                    <Route path="/products/:id" element={<ProductPage />} />
+                    <Route path="/category/:categorySlug" element={<ListingPage />} />
+                    <Route path="/collection/:collectionSlug" element={<ListingPage />} />
+                    <Route path="/brand/:brandSlug" element={<ListingPage />} />
+                    <Route path="/search" element={<ListingPage />} />
+                    <Route path="/jewellery/:category" element={<ListingPage />} />
+                    <Route path="/jewellery" element={<ListingPage />} />
+                    <Route path="/cart" element={<CartPage />} />
+                    <Route path="/checkout" element={<CheckoutPage />} />
+                    <Route path="/registry" element={<RegistryPage />} />
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Suspense>
+              </BrowserRouter>
+            </TooltipProvider>
+          </CartProvider>
+          </CartErrorBoundary>
         </QueryClientProvider>
       </RegistryProvider>
     </StoreProvider>

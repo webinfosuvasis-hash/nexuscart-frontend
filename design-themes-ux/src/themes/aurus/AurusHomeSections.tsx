@@ -32,7 +32,6 @@ import {
   MapPin, RotateCcw, Home, ChevronLeft, ChevronRight,
   Shield, Star, Video, Store, Phone,
 } from 'lucide-react';
-import CartDrawer from '@/components/CartDrawer';
 import { UI, SERIF } from './constants';
 
 // ─── Module-level constants (moved from AurusHome) ────────────────────────────
@@ -792,7 +791,7 @@ const AurusHomeSections: React.FC<AurusHomeSectionsProps> = ({
         </div>
       </footer>}
 
-      {showFooterAndCart && <CartDrawer accentClass="bg-purple-800" fontClass="font-sans" />}
+      {/* CartDrawer is rendered globally in App.tsx — no per-page instance needed */}
     </>
   );
 };

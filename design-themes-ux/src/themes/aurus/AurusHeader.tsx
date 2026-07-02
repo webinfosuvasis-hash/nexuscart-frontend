@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
 import {
   Search, Heart, ShoppingBag, User, ChevronDown, Store,
 } from 'lucide-react';
@@ -22,7 +23,8 @@ const AurusHeader: React.FC<Props> = ({
   onSearchChange,
   onSearchSubmit,
 }) => {
-  const { wishlist, cartCount, setCartOpen } = useStore();
+  const { wishlist } = useStore();
+  const { itemCount, setCartOpen } = useCartContext();
   const navigate = useNavigate();
 
   const [activeNav,      setActiveNav]      = useState(initialNav);
@@ -202,9 +204,9 @@ const AurusHeader: React.FC<Props> = ({
             aria-label="Shopping cart"
           >
             <ShoppingBag className="w-[19px] h-[19px]" />
-            {cartCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-purple-700 text-white text-[8px] w-[14px] h-[14px] rounded-full flex items-center justify-center font-bold">
-                {cartCount}
+            {itemCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-purple-700 text-white text-[8px] w-[14px] h-[14px] rounded-full flex items-center justify-center font-bold" aria-label={`${itemCount} items in cart`}>
+                {itemCount}
               </span>
             )}
           </button>

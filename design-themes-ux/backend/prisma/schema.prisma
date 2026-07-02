@@ -159,6 +159,7 @@ model Store {
   themePageSections  ThemePageSection[]    @relation("ThemePageSections")
   themePresets       ThemePreset[]
   warehouses         Warehouse[]
+  paymentConfig      StorePaymentConfig?
 
   @@map("stores")
 }
@@ -580,33 +581,40 @@ model PurchaseOrderItem {
 }
 
 model Order {
-  id              String               @id @default(cuid())
-  storeId         String
-  customerId      String?
-  orderNumber     String               @unique
-  status          OrderStatus          @default(PENDING)
-  paymentStatus   PaymentStatus        @default(PENDING)
-  paymentMethod   String?
-  subtotal        Decimal              @db.Decimal(10, 2)
-  discount        Decimal              @default(0.00) @db.Decimal(10, 2)
-  tax             Decimal              @default(0.00) @db.Decimal(10, 2)
-  shippingCost    Decimal              @default(0.00) @db.Decimal(10, 2)
-  total           Decimal              @db.Decimal(10, 2)
-  refundedAmount  Decimal              @default(0.00) @db.Decimal(10, 2)
-  shippingAddress String?              @db.LongText
-  billingAddress  String?              @db.LongText
-  couponCode      String?
-  customerNote    String?              @db.Text
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
-  items           OrderItem[]
-  notes           OrderNote[]
-  statusHistory   OrderStatusHistory[]
-  customer        Customer?            @relation(fields: [customerId], references: [id])
-  store           Store                @relation(fields: [storeId], references: [id])
-  refunds         Refund[]
-  shipments       Shipment[]
+  id                   String               @id @default(cuid())
+  storeId              String
+  customerId           String?
+  orderNumber          String
+  status               OrderStatus          @default(PENDING)
+  paymentStatus        PaymentStatus        @default(PENDING)
+  paymentMethod        String?
+  subtotal             Decimal              @db.Decimal(10, 2)
+  discount             Decimal              @default(0.00) @db.Decimal(10, 2)
+  tax                  Decimal              @default(0.00) @db.Decimal(10, 2)
+  shippingCost         Decimal              @default(0.00) @db.Decimal(10, 2)
+  total                Decimal              @db.Decimal(10, 2)
+  refundedAmount       Decimal              @default(0.00) @db.Decimal(10, 2)
+  shippingAddress      String?              @db.LongText
+  billingAddress       String?              @db.LongText
+  couponCode           String?
+  customerNote         String?              @db.Text
+  checkoutSessionId    String?
+  paymentTransactionId String?
+  paymentGatewayCode   String?              @db.VarChar(20)
+  confirmedAt          DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  items                OrderItem[]
+  notes                OrderNote[]
+  statusHistory        OrderStatusHistory[]
+  customer             Customer?            @relation(fields: [customerId], references: [id])
+  store                Store                @relation(fields: [storeId], references: [id])
+  refunds              Refund[]
+  shipments            Shipment[]
+  snapshot             OrderSnapshot?
 
+  @@unique([storeId, orderNumber])
+  @@index([orderNumber])
   @@index([storeId, status])
   @@index([storeId, createdAt])
   @@index([customerId], map: "orders_customerId_fkey")
@@ -614,17 +622,27 @@ model Order {
 }
 
 model OrderItem {
-  id          String          @id @default(cuid())
-  orderId     String
-  productId   String
-  variantId   String?
-  productName String
-  variantName String?
-  sku         String
-  quantity    Int
-  unitPrice   Decimal         @db.Decimal(10, 2)
-  total       Decimal         @db.Decimal(10, 2)
-  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id             String          @id @default(cuid())
+  orderId        String
+  productId      String
+  variantId      String?
+  productName    String
+  variantName    String?
+  sku            String
+  quantity       Int
+  unitPrice      Decimal         @db.Decimal(10, 2)
+  total          Decimal         @db.Decimal(10, 2)
+  brandName      String?         @db.VarChar(200)
+  brandSlug      String?         @db.VarChar(200)
+  thumbnail      String?         @db.VarChar(1000)
+  variantOptions Json?
+  comparePrice   Decimal?        @db.Decimal(10, 2)
+  lineDiscount   Decimal         @default(0.00) @db.Decimal(10, 2)
+  taxRate        Decimal         @default(0.0000) @db.Decimal(5, 4)
+  taxAmount      Decimal         @default(0.00) @db.Decimal(10, 2)
+  taxClass       String?         @db.VarChar(20)
+  hsn            String?         @db.VarChar(20)
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product     Product         @relation(fields: [productId], references: [id])
   variant     ProductVariant? @relation(fields: [variantId], references: [id])
 
@@ -670,21 +688,25 @@ model Shipment {
   shippedAt      DateTime?
   deliveredAt    DateTime?
   createdAt      DateTime  @default(now())
-  order          Order     @relation(fields: [orderId], references: [id])
+  order          Order          @relation(fields: [orderId], references: [id])
+  items          ShipmentItem[]
 
   @@index([orderId], map: "shipments_orderId_fkey")
   @@map("shipments")
 }
 
 model Refund {
-  id            String   @id @default(cuid())
-  orderId       String
-  amount        Decimal  @db.Decimal(10, 2)
-  reason        String?  @db.Text
-  status        String   @default("PENDING")
-  processedById String?
-  createdAt     DateTime @default(now())
-  order         Order    @relation(fields: [orderId], references: [id])
+  id                   String   @id @default(cuid())
+  orderId              String
+  amount               Decimal  @db.Decimal(10, 2)
+  reason               String?  @db.Text
+  status               String   @default("PENDING")
+  processedById        String?
+  paymentTransactionId String?
+  gatewayRefundId      String?  @db.VarChar(200)
+  amountInPaise        Int      @default(0)
+  createdAt            DateTime @default(now())
+  order                Order    @relation(fields: [orderId], references: [id])
 
   @@index([orderId], map: "refunds_orderId_fkey")
   @@map("refunds")
@@ -1449,10 +1471,14 @@ enum OrderStatus {
 
 enum PaymentStatus {
   PENDING
+  AUTHORIZED
   PAID
+  CAPTURED
   FAILED
+  CANCELLED
   REFUNDED
   PARTIAL
+  PARTIALLY_REFUNDED
 }
 
 enum CustomerSegment {
@@ -1597,4 +1623,579 @@ enum LoyaltyTier {
   SILVER
   GOLD
   PLATINUM
+}
+
+// ===== CART ENGINE — Phase P3 =====
+
+model Cart {
+  id                String         @id @default(cuid())
+  storeId           String
+  sessionId         String
+  customerId        String?
+  status            CartStatus     @default(ACTIVE)
+  version           Int            @default(1)
+  currencyCode      String         @default("INR")
+  exchangeRate      Decimal?       @db.Decimal(15, 6)
+  locale            String         @default("en-IN")
+  couponCode        String?
+  lockedAt          DateTime?
+  lockedUntil       DateTime?
+  lastActivityAt    DateTime       @default(now())
+  abandonedAt       DateTime?
+  expiredAt         DateTime?
+  archivedAt        DateTime?
+  checkoutStartedAt DateTime?
+  convertedAt       DateTime?
+  mergedIntoCartId  String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  items      CartItem[]
+  activities CartActivity[]
+
+  @@index([storeId, sessionId])
+  @@index([storeId, status])
+  @@index([status, lastActivityAt])
+  @@map("carts")
+}
+
+model CartItem {
+  id                String          @id @default(cuid())
+  cartId            String
+  storeId           String
+  productId         String
+  variantId         String?
+  quantity          Int
+  sku               String
+  name              String
+  brand             String?
+  slug              String
+  seoUrl            String?
+  image             String          @db.VarChar(1000)
+  unitPrice         Decimal         @db.Decimal(15, 4)
+  comparePrice      Decimal?        @db.Decimal(15, 4)
+  taxCategory       String?
+  hsn               String?
+  gstClass          String?
+  weight            Decimal?        @db.Decimal(8, 2)
+  dimensions        String?         @db.Text
+  variantOptions    String?         @db.Text
+  warehouseId       String?
+  inventorySource   InventorySource @default(PRODUCT)
+  appliedPromotions String?         @db.LongText
+  lineDiscount      Decimal         @default(0.0000) @db.Decimal(15, 4)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@index([cartId])
+  @@index([storeId, productId])
+  @@map("cart_items")
+}
+
+model CartActivity {
+  id            String           @id
+  cartId        String
+  storeId       String
+  sessionId     String
+  customerId    String?
+  activityType  CartActivityType
+  actorType     CartActorType
+  actorId       String?
+  payload       Json
+  ipAddress     String?          @db.VarChar(45)
+  userAgent     String?          @db.VarChar(500)
+  traceId       String?          @db.VarChar(32)
+  spanId        String?          @db.VarChar(16)
+  correlationId String?
+  requestId     String?
+  createdAt     DateTime         @default(now())
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@index([cartId])
+  @@index([storeId, activityType, createdAt])
+  @@index([traceId])
+  @@map("cart_activities")
+}
+
+enum CartStatus {
+  ACTIVE
+  LOCKED
+  MERGED
+  ABANDONED
+  EXPIRED
+  ARCHIVED
+  CONVERTED
+}
+
+enum CartActivityType {
+  CART_CREATED
+  ITEM_ADDED
+  ITEM_REMOVED
+  QTY_UPDATED
+  QTY_ADJUSTED
+  PROMOTION_APPLIED
+  PROMOTION_REMOVED
+  CART_CLEARED
+  CART_MERGED
+  CART_LOCKED
+  CART_UNLOCKED
+  CART_ABANDONED
+  CART_EXPIRED
+  CART_ARCHIVED
+  CHECKOUT_STARTED
+  CHECKOUT_COMPLETED
+  CHECKOUT_FAILED
+  CART_VALIDATED
+}
+
+enum CartActorType {
+  CUSTOMER
+  SYSTEM
+  ADMIN
+}
+
+enum InventorySource {
+  PRODUCT
+  VARIANT
+  WAREHOUSE
+  VIRTUAL
+}
+
+// ===== CHECKOUT ENGINE — Phase P4A =====
+
+model CheckoutSession {
+  id                       String          @id @default(cuid())
+  storeId                  String
+  cartId                   String
+  cartVersion              Int
+  sessionId                String
+  customerId               String?
+  status                   CheckoutStatus  @default(PENDING)
+  selectedShippingMethodId String?
+  isValid                  Boolean         @default(false)
+  validatedAt              DateTime?
+  expiresAt                DateTime
+  cancelledAt              DateTime?
+  completedAt              DateTime?
+  traceId                  String?         @db.VarChar(32)
+  spanId                   String?         @db.VarChar(16)
+  correlationId            String?
+  requestId                String?
+  ipAddress                String?         @db.VarChar(45)
+  userAgent                String?         @db.VarChar(500)
+  paymentInitiatedAt       DateTime?
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+
+  addresses           CheckoutAddressSnapshot[]
+  activities          CheckoutActivity[]
+  paymentTransactions PaymentTransaction[]
+
+  @@index([storeId, cartId])
+  @@index([storeId, sessionId])
+  @@index([storeId, status])
+  @@index([status, expiresAt])
+  @@map("checkout_sessions")
+}
+
+model CheckoutAddressSnapshot {
+  id              String      @id @default(cuid())
+  checkoutId      String
+  type            AddressType
+  firstName       String      @db.VarChar(100)
+  lastName        String      @db.VarChar(100)
+  line1           String      @db.VarChar(255)
+  line2           String?     @db.VarChar(255)
+  city            String      @db.VarChar(100)
+  state           String      @db.VarChar(100)
+  postalCode      String      @db.VarChar(20)
+  country         String      @default("IN") @db.VarChar(5)
+  phone           String      @db.VarChar(20)
+  email           String?     @db.VarChar(255)
+  isGuestAddress  Boolean     @default(false)
+  sourceAddressId String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  checkout CheckoutSession @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+
+  @@index([checkoutId, type])
+  @@map("checkout_address_snapshots")
+}
+
+model CheckoutActivity {
+  id            String               @id
+  checkoutId    String
+  storeId       String
+  sessionId     String
+  customerId    String?
+  activityType  CheckoutActivityType
+  actorType     CheckoutActorType
+  actorId       String?
+  payload       Json
+  ipAddress     String?              @db.VarChar(45)
+  userAgent     String?              @db.VarChar(500)
+  traceId       String?              @db.VarChar(32)
+  spanId        String?              @db.VarChar(16)
+  correlationId String?
+  requestId     String?
+  createdAt     DateTime             @default(now())
+
+  checkout CheckoutSession @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+
+  @@index([checkoutId])
+  @@index([storeId, activityType, createdAt])
+  @@index([traceId])
+  @@map("checkout_activities")
+}
+
+enum CheckoutStatus {
+  PENDING
+  ADDRESS_ADDED
+  SHIPPING_SELECTED
+  VALIDATED
+  PAYMENT_INITIATED
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+}
+
+enum CheckoutActivityType {
+  CHECKOUT_STARTED
+  ADDRESS_UPDATED
+  SHIPPING_UPDATED
+  VALIDATION_PASSED
+  VALIDATION_FAILED
+  CHECKOUT_CANCELLED
+  CHECKOUT_COMPLETED
+  CHECKOUT_EXPIRED
+}
+
+enum CheckoutActorType {
+  CUSTOMER
+  SYSTEM
+  ADMIN
+}
+
+// ===== PAYMENT FOUNDATION — Phase P4B =====
+
+model StorePaymentConfig {
+  id             String               @id @default(cuid())
+  storeId        String               @unique
+  defaultGateway String               @default("cod") @db.VarChar(20)
+  isLive         Boolean              @default(false)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  store          Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  methods        StorePaymentMethod[]
+
+  @@map("store_payment_configs")
+}
+
+model StorePaymentMethod {
+  id             String             @id @default(cuid())
+  storeId        String
+  configId       String
+  gatewayCode    String             @db.VarChar(20)
+  displayName    String             @db.VarChar(100)
+  isActive       Boolean            @default(true)
+  sortOrder      Int                @default(0)
+  credentialsEnc String?            @db.Text
+  credentialsIv  String?            @db.VarChar(32)
+  credentialsTag String?            @db.VarChar(32)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  config         StorePaymentConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  transactions   PaymentTransaction[]
+
+  @@unique([storeId, gatewayCode])
+  @@index([configId], map: "store_payment_methods_configId_fkey")
+  @@map("store_payment_methods")
+}
+
+model PaymentTransaction {
+  id                   String              @id @default(cuid())
+  storeId              String
+  checkoutSessionId    String
+  paymentMethodId      String?
+  gatewayCode          String              @db.VarChar(20)
+  status               PaymentTxStatus     @default(PENDING)
+  amountInPaise        Int
+  currency             String              @default("INR") @db.VarChar(3)
+  attemptNumber        Int                 @default(1)
+  gatewayOrderId       String?             @db.VarChar(200)
+  gatewayPaymentId     String?             @db.VarChar(200)
+  gatewayIntentId      String?             @db.VarChar(200)
+  gatewayReferenceId   String?             @db.VarChar(200)
+  gatewaySignature     String?             @db.VarChar(1000)
+  capturedPaise        Int?
+  checkoutSnapshot     Json?
+  orderId              String?
+  supersededById       String?             @unique @db.VarChar(191)
+  authorizedAt         DateTime?
+  capturedAt           DateTime?
+  failedAt             DateTime?
+  cancelledAt          DateTime?
+  expiredAt            DateTime?
+  refundedAt           DateTime?
+  retryCount           Int                 @default(0)
+  nextRetryAt          DateTime?
+  traceId              String?             @db.VarChar(32)
+  spanId               String?             @db.VarChar(16)
+  correlationId        String?
+  requestId            String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  checkout             CheckoutSession     @relation(fields: [checkoutSessionId], references: [id])
+  paymentMethod        StorePaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  supersededBy         PaymentTransaction? @relation("Supersedes", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersededByMe       PaymentTransaction[] @relation("Supersedes")
+  activities           PaymentActivity[]
+  refunds              PaymentRefund[]
+  reservation          InventoryReservation?
+
+  @@index([storeId, status])
+  @@index([storeId, checkoutSessionId])
+  @@index([gatewayOrderId])
+  @@index([gatewayIntentId])
+  @@index([status, capturedAt])
+  @@index([status, authorizedAt])
+  @@map("payment_transactions")
+}
+
+model PaymentActivity {
+  id                   String              @id
+  paymentTransactionId String
+  storeId              String
+  activityType         PaymentActivityType
+  actorType            PaymentActorType
+  actorId              String?
+  payload              Json
+  ipAddress            String?             @db.VarChar(45)
+  userAgent            String?             @db.VarChar(500)
+  traceId              String?             @db.VarChar(32)
+  spanId               String?             @db.VarChar(16)
+  correlationId        String?
+  requestId            String?
+  createdAt            DateTime            @default(now())
+  payment              PaymentTransaction  @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+
+  @@index([paymentTransactionId])
+  @@index([storeId, activityType, createdAt])
+  @@map("payment_activities")
+}
+
+model PaymentRefund {
+  id                   String             @id @default(cuid())
+  paymentTransactionId String
+  orderId              String?
+  storeId              String
+  amountInPaise        Int
+  reason               String?            @db.Text
+  gatewayRefundId      String?            @db.VarChar(200)
+  status               String             @default("PENDING") @db.VarChar(20)
+  initiatedById        String?
+  processedAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  payment              PaymentTransaction @relation(fields: [paymentTransactionId], references: [id])
+
+  @@index([paymentTransactionId])
+  @@index([storeId])
+  @@map("payment_refunds")
+}
+
+model InventoryLevel {
+  id          String   @id @default(cuid())
+  storeId     String
+  productId   String
+  variantId   String?
+  warehouseId String?
+  onHand      Int      @default(0)
+  reserved    Int      @default(0)
+  committed   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([storeId, productId, variantId])
+  @@index([storeId, productId])
+  @@map("inventory_levels")
+}
+
+model InventoryReservation {
+  id                   String                    @id @default(cuid())
+  storeId              String
+  paymentTransactionId String?                   @unique
+  tentativeOrderId     String
+  status               InventoryReservationStatus @default(RESERVED)
+  expiresAt            DateTime
+  reservedAt           DateTime                  @default(now())
+  releasedAt           DateTime?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  payment              PaymentTransaction?        @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+  items                InventoryReservationItem[]
+
+  @@index([storeId, status])
+  @@index([status, expiresAt])
+  @@map("inventory_reservations")
+}
+
+model InventoryReservationItem {
+  id            String               @id @default(cuid())
+  reservationId String
+  storeId       String
+  productId     String
+  variantId     String?
+  warehouseId   String?
+  quantity      Int
+  reservation   InventoryReservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@index([reservationId])
+  @@map("inventory_reservation_items")
+}
+
+model StoreOrderCounter {
+  storeId String
+  year    Int
+  counter Int    @default(0)
+
+  @@id([storeId, year])
+  @@map("store_order_counters")
+}
+
+model OrderSnapshot {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  storeId   String
+  payload   Json
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
+  @@map("order_snapshots")
+}
+
+model OutboxEvent {
+  id            String           @id @default(cuid())
+  storeId       String
+  eventType     String           @db.VarChar(100)
+  eventVersion  Int              @default(1)
+  aggregateId   String
+  aggregateType String           @db.VarChar(50)
+  payload       Json
+  status        OutboxEventStatus @default(PENDING)
+  attempts      Int              @default(0)
+  maxAttempts   Int              @default(5)
+  nextRetryAt   DateTime         @default(now())
+  processedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@index([storeId, eventType, createdAt])
+  @@map("outbox_events")
+}
+
+model WebhookLog {
+  id             String    @id @default(cuid())
+  gatewayCode    String    @db.VarChar(20)
+  storeId        String?
+  gatewayEventId String?   @db.VarChar(200)
+  eventType      String?   @db.VarChar(100)
+  status         String    @default("PENDING") @db.VarChar(20)
+  rawBody        Bytes
+  processingMs   Int?
+  error          String?   @db.Text
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([gatewayCode, receivedAt])
+  @@index([gatewayCode, status])
+  @@map("webhook_logs")
+}
+
+model IdempotencyRecord {
+  id        String   @id @default(cuid())
+  key       String   @unique @db.VarChar(500)
+  storeId   String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+model ShipmentItem {
+  id         String   @id @default(cuid())
+  shipmentId String
+  orderId    String
+  productId  String
+  variantId  String?
+  quantity   Int
+  shipment   Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@map("shipment_items")
+}
+
+enum PaymentTxStatus {
+  PENDING
+  GATEWAY_CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentActivityType {
+  PAYMENT_INITIATED
+  GATEWAY_ORDER_CREATED
+  SIGNATURE_VERIFIED
+  SIGNATURE_FAILED
+  PAYMENT_AUTHORIZED
+  PAYMENT_CAPTURED
+  PAYMENT_FAILED
+  PAYMENT_CANCELLED
+  PAYMENT_EXPIRED
+  PAYMENT_REFUND_INITIATED
+  PAYMENT_REFUND_PROCESSED
+  PAYMENT_ORDER_LINKED
+  RECOVERY_ATTEMPTED
+  RECONCILIATION_MISMATCH
+  SYSTEM_AUTO_REFUND
+}
+
+enum PaymentActorType {
+  CUSTOMER
+  GATEWAY
+  SYSTEM
+  ADMIN
+}
+
+enum InventoryReservationStatus {
+  RESERVED
+  COMMITTED
+  RELEASED
+  EXPIRED
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  DEAD
 }

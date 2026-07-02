@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Environment files with secrets — never commit
+backend/.env
+backend/.env.*
+!backend/.env.example

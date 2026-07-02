@@ -2,28 +2,21 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 import { useStore, inr } from '@/context/StoreContext';
+import { useCartContext } from '@/context/CartContext';
+import { useAddToCart } from '@/hooks/useCart';
 import { UI } from '@/themes/aurus/constants';
-import type { Product } from '@/data/products';
 import type { ListingProduct } from '@/lib/storefrontApi';
 import StarRow from './StarRow';
-
-/** Bridges the API's ListingProduct shape into the cart/registry contexts' Product type (same adapter as ProductGrid.tsx). */
-function toCartProduct(p: ListingProduct): Product {
-  return {
-    id: p.id, theme: 'aurus', name: p.name, category: p.category?.name ?? '',
-    price: p.price, mrp: p.mrp, image: p.image, badge: p.badge,
-    rating: p.rating, reviews: p.reviewCount, desc: '',
-  };
-}
 
 interface ProductCarouselProps {
   title:    string;
   products: ListingProduct[];
 }
 
-/** "Related Products" / "Similar Products" grid — same card markup as the original AurusProduct "You May Also Like" section. */
 const ProductCarousel: React.FC<ProductCarouselProps> = ({ title, products }) => {
-  const { addToCart, toggleWishlist, wishlist } = useStore();
+  const { toggleWishlist, wishlist } = useStore();
+  const { setCartOpen } = useCartContext();
+  const { mutate: addToCart } = useAddToCart();
 
   if (products.length === 0) return null;
 
@@ -46,6 +39,7 @@ const ProductCarousel: React.FC<ProductCarouselProps> = ({ title, products }) =>
                   <button
                     onClick={() => toggleWishlist(p.id)}
                     className="absolute top-2 right-2 z-10 bg-white/90 rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label={w ? 'Remove from wishlist' : 'Add to wishlist'}
                   >
                     <Heart className={`w-3 h-3 ${w ? 'fill-red-500 text-red-500' : 'text-gray-400'}`} />
                   </button>
@@ -74,9 +68,15 @@ const ProductCarousel: React.FC<ProductCarouselProps> = ({ title, products }) =>
                   <div className="w-px bg-gray-100" />
                   <button
                     disabled={p.stock <= 0}
-                    onClick={() => addToCart(toCartProduct(p))}
+                    onClick={() =>
+                      addToCart(
+                        { productId: p.id, quantity: 1 },
+                        { onSuccess: () => setCartOpen(true) },
+                      )
+                    }
                     className="flex-1 py-2 text-[10px] text-gray-500 hover:text-purple-700 hover:bg-purple-50 transition-colors font-medium disabled:opacity-40"
                     style={UI}
+                    aria-label={p.stock > 0 ? `Add ${p.name} to bag` : 'Out of stock'}
                   >
                     {p.stock > 0 ? 'Add to Bag' : 'Out of Stock'}
                   </button>
