@@ -602,6 +602,12 @@ model Order {
   paymentTransactionId String?
   paymentGatewayCode   String?              @db.VarChar(20)
   confirmedAt          DateTime?
+  // Milestone 8's migration (20260703000000_m8_order_cancellation) created these
+  // two columns as snake_case, unlike every other column on this table — @map
+  // corrects the mismatch without needing a new migration (the physical columns
+  // already exist under these names).
+  cancelledAt          DateTime?            @map("cancelled_at")
+  cancellationReason   String?              @db.Text @map("cancellation_reason")
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
   items                OrderItem[]
@@ -643,8 +649,8 @@ model OrderItem {
   taxClass       String?         @db.VarChar(20)
   hsn            String?         @db.VarChar(20)
   order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product         @relation(fields: [productId], references: [id])
-  variant     ProductVariant? @relation(fields: [variantId], references: [id])
+  product        Product         @relation(fields: [productId], references: [id])
+  variant        ProductVariant? @relation(fields: [variantId], references: [id])
 
   @@index([orderId], map: "order_items_orderId_fkey")
   @@index([productId], map: "order_items_productId_fkey")
@@ -680,14 +686,14 @@ model OrderNote {
 }
 
 model Shipment {
-  id             String    @id @default(cuid())
+  id             String         @id @default(cuid())
   orderId        String
   trackingNumber String?
   carrier        String?
-  status         String    @default("PENDING")
+  status         String         @default("PENDING")
   shippedAt      DateTime?
   deliveredAt    DateTime?
-  createdAt      DateTime  @default(now())
+  createdAt      DateTime       @default(now())
   order          Order          @relation(fields: [orderId], references: [id])
   items          ShipmentItem[]
 
@@ -713,30 +719,80 @@ model Refund {
 }
 
 model Customer {
-  id          String            @id @default(cuid())
-  storeId     String
-  email       String
-  name        String
-  phone       String?
-  avatar      String?
-  segment     CustomerSegment   @default(NEW)
-  totalOrders Int               @default(0)
-  totalSpent  Decimal           @default(0.00) @db.Decimal(10, 2)
-  lastOrderAt DateTime?
-  isActive    Boolean           @default(true)
-  notes       String?           @db.Text
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  deletedAt   DateTime?
-  addresses   CustomerAddress[]
-  store       Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  loyalty     LoyaltyAccount?
-  orders      Order[]
-  reviews     ProductReview[]
+  id                 String                      @id @default(cuid())
+  storeId            String
+  email              String
+  name               String
+  phone              String?
+  avatar             String?
+  segment            CustomerSegment             @default(NEW)
+  totalOrders        Int                         @default(0)
+  totalSpent         Decimal                     @default(0.00) @db.Decimal(10, 2)
+  lastOrderAt        DateTime?
+  isActive           Boolean                     @default(true)
+  notes              String?                     @db.Text
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  deletedAt          DateTime?
+  addresses          CustomerAddress[]
+  store              Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  loyalty            LoyaltyAccount?
+  orders             Order[]
+  reviews            ProductReview[]
+  credential         CustomerCredential?
+  refreshTokens      CustomerRefreshToken[]
+  verificationTokens CustomerVerificationToken[]
 
   @@unique([storeId, email])
   @@index([storeId, segment])
   @@map("customers")
+}
+
+// ─── FI-1: Customer Identity Platform ────────────────────────────────────────
+// Isolated from User/RefreshToken (merchant auth). One customer has at most
+// one credential row; a customer with no row here has never registered
+// (e.g. created via admin CRM import or as an order's contact only).
+model CustomerCredential {
+  id                  String    @id @default(cuid())
+  customerId          String    @unique
+  passwordHash        String
+  isEmailVerified     Boolean   @default(false)
+  emailVerifiedAt     DateTime?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  customer            Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_credentials")
+}
+
+model CustomerRefreshToken {
+  id         String    @id @default(cuid())
+  customerId String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@map("customer_refresh_tokens")
+}
+
+model CustomerVerificationToken {
+  id         String               @id @default(cuid())
+  customerId String
+  purpose    CustomerTokenPurpose
+  tokenHash  String               @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime             @default(now())
+  customer   Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, purpose])
+  @@map("customer_verification_tokens")
 }
 
 model CustomerAddress {
@@ -1488,6 +1544,11 @@ enum CustomerSegment {
   AT_RISK
 }
 
+enum CustomerTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 enum CouponType {
   PERCENTAGE
   FIXED
@@ -1628,27 +1689,27 @@ enum LoyaltyTier {
 // ===== CART ENGINE — Phase P3 =====
 
 model Cart {
-  id                String         @id @default(cuid())
+  id                String     @id @default(cuid())
   storeId           String
   sessionId         String
   customerId        String?
-  status            CartStatus     @default(ACTIVE)
-  version           Int            @default(1)
-  currencyCode      String         @default("INR")
-  exchangeRate      Decimal?       @db.Decimal(15, 6)
-  locale            String         @default("en-IN")
+  status            CartStatus @default(ACTIVE)
+  version           Int        @default(1)
+  currencyCode      String     @default("INR")
+  exchangeRate      Decimal?   @db.Decimal(15, 6)
+  locale            String     @default("en-IN")
   couponCode        String?
   lockedAt          DateTime?
   lockedUntil       DateTime?
-  lastActivityAt    DateTime       @default(now())
+  lastActivityAt    DateTime   @default(now())
   abandonedAt       DateTime?
   expiredAt         DateTime?
   archivedAt        DateTime?
   checkoutStartedAt DateTime?
   convertedAt       DateTime?
   mergedIntoCartId  String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   items      CartItem[]
   activities CartActivity[]
@@ -1767,28 +1828,28 @@ enum InventorySource {
 // ===== CHECKOUT ENGINE — Phase P4A =====
 
 model CheckoutSession {
-  id                       String          @id @default(cuid())
+  id                       String         @id @default(cuid())
   storeId                  String
   cartId                   String
   cartVersion              Int
   sessionId                String
   customerId               String?
-  status                   CheckoutStatus  @default(PENDING)
+  status                   CheckoutStatus @default(PENDING)
   selectedShippingMethodId String?
-  isValid                  Boolean         @default(false)
+  isValid                  Boolean        @default(false)
   validatedAt              DateTime?
   expiresAt                DateTime
   cancelledAt              DateTime?
   completedAt              DateTime?
-  traceId                  String?         @db.VarChar(32)
-  spanId                   String?         @db.VarChar(16)
+  traceId                  String?        @db.VarChar(32)
+  spanId                   String?        @db.VarChar(16)
   correlationId            String?
   requestId                String?
-  ipAddress                String?         @db.VarChar(45)
-  userAgent                String?         @db.VarChar(500)
+  ipAddress                String?        @db.VarChar(45)
+  userAgent                String?        @db.VarChar(500)
   paymentInitiatedAt       DateTime?
-  createdAt                DateTime        @default(now())
-  updatedAt                DateTime        @updatedAt
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
 
   addresses           CheckoutAddressSnapshot[]
   activities          CheckoutActivity[]
@@ -1901,19 +1962,19 @@ model StorePaymentConfig {
 }
 
 model StorePaymentMethod {
-  id             String             @id @default(cuid())
+  id             String               @id @default(cuid())
   storeId        String
   configId       String
-  gatewayCode    String             @db.VarChar(20)
-  displayName    String             @db.VarChar(100)
-  isActive       Boolean            @default(true)
-  sortOrder      Int                @default(0)
-  credentialsEnc String?            @db.Text
-  credentialsIv  String?            @db.VarChar(32)
-  credentialsTag String?            @db.VarChar(32)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  config         StorePaymentConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  gatewayCode    String               @db.VarChar(20)
+  displayName    String               @db.VarChar(100)
+  isActive       Boolean              @default(true)
+  sortOrder      Int                  @default(0)
+  credentialsEnc String?              @db.Text
+  credentialsIv  String?              @db.VarChar(32)
+  credentialsTag String?              @db.VarChar(32)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  config         StorePaymentConfig   @relation(fields: [configId], references: [id], onDelete: Cascade)
   transactions   PaymentTransaction[]
 
   @@unique([storeId, gatewayCode])
@@ -1922,45 +1983,45 @@ model StorePaymentMethod {
 }
 
 model PaymentTransaction {
-  id                   String              @id @default(cuid())
-  storeId              String
-  checkoutSessionId    String
-  paymentMethodId      String?
-  gatewayCode          String              @db.VarChar(20)
-  status               PaymentTxStatus     @default(PENDING)
-  amountInPaise        Int
-  currency             String              @default("INR") @db.VarChar(3)
-  attemptNumber        Int                 @default(1)
-  gatewayOrderId       String?             @db.VarChar(200)
-  gatewayPaymentId     String?             @db.VarChar(200)
-  gatewayIntentId      String?             @db.VarChar(200)
-  gatewayReferenceId   String?             @db.VarChar(200)
-  gatewaySignature     String?             @db.VarChar(1000)
-  capturedPaise        Int?
-  checkoutSnapshot     Json?
-  orderId              String?
-  supersededById       String?             @unique @db.VarChar(191)
-  authorizedAt         DateTime?
-  capturedAt           DateTime?
-  failedAt             DateTime?
-  cancelledAt          DateTime?
-  expiredAt            DateTime?
-  refundedAt           DateTime?
-  retryCount           Int                 @default(0)
-  nextRetryAt          DateTime?
-  traceId              String?             @db.VarChar(32)
-  spanId               String?             @db.VarChar(16)
-  correlationId        String?
-  requestId            String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  checkout             CheckoutSession     @relation(fields: [checkoutSessionId], references: [id])
-  paymentMethod        StorePaymentMethod? @relation(fields: [paymentMethodId], references: [id])
-  supersededBy         PaymentTransaction? @relation("Supersedes", fields: [supersededById], references: [id], onDelete: SetNull)
-  supersededByMe       PaymentTransaction[] @relation("Supersedes")
-  activities           PaymentActivity[]
-  refunds              PaymentRefund[]
-  reservation          InventoryReservation?
+  id                 String                @id @default(cuid())
+  storeId            String
+  checkoutSessionId  String
+  paymentMethodId    String?
+  gatewayCode        String                @db.VarChar(20)
+  status             PaymentTxStatus       @default(PENDING)
+  amountInPaise      Int
+  currency           String                @default("INR") @db.VarChar(3)
+  attemptNumber      Int                   @default(1)
+  gatewayOrderId     String?               @db.VarChar(200)
+  gatewayPaymentId   String?               @db.VarChar(200)
+  gatewayIntentId    String?               @db.VarChar(200)
+  gatewayReferenceId String?               @db.VarChar(200)
+  gatewaySignature   String?               @db.VarChar(1000)
+  capturedPaise      Int?
+  checkoutSnapshot   Json?
+  orderId            String?
+  supersededById     String?               @unique @db.VarChar(191)
+  authorizedAt       DateTime?
+  capturedAt         DateTime?
+  failedAt           DateTime?
+  cancelledAt        DateTime?
+  expiredAt          DateTime?
+  refundedAt         DateTime?
+  retryCount         Int                   @default(0)
+  nextRetryAt        DateTime?
+  traceId            String?               @db.VarChar(32)
+  spanId             String?               @db.VarChar(16)
+  correlationId      String?
+  requestId          String?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  checkout           CheckoutSession       @relation(fields: [checkoutSessionId], references: [id])
+  paymentMethod      StorePaymentMethod?   @relation(fields: [paymentMethodId], references: [id])
+  supersededBy       PaymentTransaction?   @relation("Supersedes", fields: [supersededById], references: [id], onDelete: SetNull)
+  supersededByMe     PaymentTransaction[]  @relation("Supersedes")
+  activities         PaymentActivity[]
+  refunds            PaymentRefund[]
+  reservation        InventoryReservation?
 
   @@index([storeId, status])
   @@index([storeId, checkoutSessionId])
@@ -2031,16 +2092,16 @@ model InventoryLevel {
 }
 
 model InventoryReservation {
-  id                   String                    @id @default(cuid())
+  id                   String                     @id @default(cuid())
   storeId              String
-  paymentTransactionId String?                   @unique
+  paymentTransactionId String?                    @unique
   tentativeOrderId     String
   status               InventoryReservationStatus @default(RESERVED)
   expiresAt            DateTime
-  reservedAt           DateTime                  @default(now())
+  reservedAt           DateTime                   @default(now())
   releasedAt           DateTime?
-  createdAt            DateTime                  @default(now())
-  updatedAt            DateTime                  @updatedAt
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
   payment              PaymentTransaction?        @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
   items                InventoryReservationItem[]
 
@@ -2085,20 +2146,20 @@ model OrderSnapshot {
 }
 
 model OutboxEvent {
-  id            String           @id @default(cuid())
+  id            String            @id @default(cuid())
   storeId       String
-  eventType     String           @db.VarChar(100)
-  eventVersion  Int              @default(1)
+  eventType     String            @db.VarChar(100)
+  eventVersion  Int               @default(1)
   aggregateId   String
-  aggregateType String           @db.VarChar(50)
+  aggregateType String            @db.VarChar(50)
   payload       Json
   status        OutboxEventStatus @default(PENDING)
-  attempts      Int              @default(0)
-  maxAttempts   Int              @default(5)
-  nextRetryAt   DateTime         @default(now())
+  attempts      Int               @default(0)
+  maxAttempts   Int               @default(5)
+  nextRetryAt   DateTime          @default(now())
   processedAt   DateTime?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([status, nextRetryAt])
   @@index([storeId, eventType, createdAt])

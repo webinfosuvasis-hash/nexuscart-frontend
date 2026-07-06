@@ -9,6 +9,7 @@ const mockRedis = {
   scan:   jest.fn(),
   ping:   jest.fn(),
   quit:   jest.fn(),
+  eval:   jest.fn(),
 };
 
 describe('CacheService', () => {
@@ -123,6 +124,110 @@ describe('CacheService', () => {
     it('returns false when Redis is down', async () => {
       mockRedis.ping.mockRejectedValue(new Error('ECONNREFUSED'));
       expect(await service.ping()).toBe(false);
+    });
+  });
+
+  // ── acquireLock ───────────────────────────────────────────────────────────
+
+  describe('acquireLock', () => {
+    it('TEST-LOCK-1: returns true immediately when Redis SET NX succeeds', async () => {
+      mockRedis.set.mockResolvedValue('OK');
+
+      const result = await service.acquireLock('nexuscart:order-lock:order-1', 'uuid-token', 30_000, 30, 0);
+
+      expect(result).toBe(true);
+      expect(mockRedis.set).toHaveBeenCalledTimes(1);
+      expect(mockRedis.set).toHaveBeenCalledWith(
+        'nexuscart:order-lock:order-1',
+        'uuid-token',
+        'PX',
+        30_000,
+        'NX',
+      );
+    });
+
+    it('TEST-LOCK-2: retries after null response and returns true when lock eventually acquired', async () => {
+      // First two attempts fail (key exists); third succeeds
+      mockRedis.set
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce('OK');
+
+      const result = await service.acquireLock('k', 't', 30_000, 30, 0);
+
+      expect(result).toBe(true);
+      expect(mockRedis.set).toHaveBeenCalledTimes(3);
+    });
+
+    it('TEST-LOCK-3: returns false when all retries exhausted (retries=2 → 3 total SET calls)', async () => {
+      mockRedis.set.mockResolvedValue(null);
+
+      const result = await service.acquireLock('k', 't', 30_000, 2, 0);
+
+      expect(result).toBe(false);
+      // initial attempt + 2 retries = 3 total SET calls
+      expect(mockRedis.set).toHaveBeenCalledTimes(3);
+    });
+
+    it('TEST-LOCK-4: propagates Redis errors — does not swallow or return false', async () => {
+      mockRedis.set.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      await expect(
+        service.acquireLock('k', 't', 30_000, 30, 0),
+      ).rejects.toThrow('ECONNREFUSED');
+    });
+
+    it('TEST-LOCK-5: with retries=30 and retryIntervalMs=0 makes exactly 31 SET calls before returning false', async () => {
+      mockRedis.set.mockResolvedValue(null);
+
+      const result = await service.acquireLock('k', 't', 30_000, 30, 0);
+
+      expect(result).toBe(false);
+      // 1 initial + 30 retries = 31 SET calls; 30 sleeps at 0 ms each
+      expect(mockRedis.set).toHaveBeenCalledTimes(31);
+    });
+  });
+
+  // ── releaseLock ───────────────────────────────────────────────────────────
+
+  describe('releaseLock', () => {
+    it('TEST-LOCK-6: executes Lua script with exact KEYS[1]=key and ARGV[1]=token', async () => {
+      mockRedis.eval.mockResolvedValue(1);
+
+      await service.releaseLock('nexuscart:order-lock:order-1', 'my-uuid-token');
+
+      expect(mockRedis.eval).toHaveBeenCalledTimes(1);
+      const [script, numkeys, keyArg, tokenArg] = mockRedis.eval.mock.calls[0];
+      expect(numkeys).toBe(1);
+      expect(keyArg).toBe('nexuscart:order-lock:order-1');
+      expect(tokenArg).toBe('my-uuid-token');
+      // Script must reference KEYS[1] and ARGV[1]
+      expect(script).toContain('KEYS[1]');
+      expect(script).toContain('ARGV[1]');
+    });
+
+    it('TEST-LOCK-7: resolves without error when Lua returns 1 (lock deleted)', async () => {
+      mockRedis.eval.mockResolvedValue(1);
+
+      await expect(
+        service.releaseLock('k', 'correct-token'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('TEST-LOCK-8: resolves without error when Lua returns 0 (token mismatch — foreign lock not touched)', async () => {
+      mockRedis.eval.mockResolvedValue(0);
+
+      await expect(
+        service.releaseLock('k', 'wrong-token'),
+      ).resolves.toBeUndefined();
+    });
+
+    it('TEST-LOCK-9: propagates Redis errors — does not swallow', async () => {
+      mockRedis.eval.mockRejectedValue(new Error('Redis down'));
+
+      await expect(
+        service.releaseLock('k', 't'),
+      ).rejects.toThrow('Redis down');
     });
   });
 });

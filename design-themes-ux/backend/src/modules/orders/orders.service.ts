@@ -3,14 +3,17 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 
+// PROCESSING → SHIPPED is intentionally absent: only FulfillmentService.createShipment()
+// may make that transition (it also creates the Shipment record and outbox events).
+// Allowing it here would leave the order in SHIPPED with no Shipment row.
 const STATUS_TRANSITIONS: Record<string, string[]> = {
-  PENDING: ['PROCESSING', 'CANCELLED'],
-  PROCESSING: ['SHIPPED', 'CANCELLED'],
-  SHIPPED: ['DELIVERED', 'RETURNED'],
-  DELIVERED: ['RETURNED', 'REFUNDED'],
-  CANCELLED: [],
-  RETURNED: ['REFUNDED'],
-  REFUNDED: [],
+  PENDING:    ['PROCESSING'],
+  PROCESSING: [],
+  SHIPPED:    ['DELIVERED', 'RETURNED'],
+  DELIVERED:  ['RETURNED', 'REFUNDED'],
+  CANCELLED:  [],
+  RETURNED:   ['REFUNDED'],
+  REFUNDED:   [],
 };
 
 @Injectable()
@@ -116,10 +119,15 @@ export class OrdersService {
     return shipment;
   }
 
-  async createRefund(storeId: string, id: string, amount: number, reason: string, userId: string) {
+  async recordManualRefund(storeId: string, id: string, amount: number, reason: string, userId: string) {
     const order = await this.findOne(storeId, id);
-    if (amount > Number(order.total)) {
-      throw new BadRequestException('Refund amount exceeds order total');
+
+    if (order.status === 'CANCELLED') {
+      throw new BadRequestException('Cannot record a refund on a cancelled order');
+    }
+    const remaining = Number(order.total) - Number(order.refundedAmount);
+    if (amount > remaining) {
+      throw new BadRequestException(`Refund amount exceeds remaining refundable amount (${remaining})`);
     }
 
     return this.prisma.$transaction(async (tx) => {

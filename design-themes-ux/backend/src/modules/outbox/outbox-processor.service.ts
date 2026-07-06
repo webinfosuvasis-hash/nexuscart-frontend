@@ -119,37 +119,38 @@ export class OutboxProcessorService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Claims up to `batchSize` PENDING events using SKIP LOCKED to prevent
-   * concurrent instances from processing the same rows.
-   * Returns the IDs of claimed events (now marked PROCESSING).
+   * Claims up to `batchSize` PENDING events.
+   *
+   * MariaDB does not support SELECT … FOR UPDATE SKIP LOCKED (MySQL 8.0+ only).
+   * Instead we use an optimistic two-phase approach:
+   *   1. SELECT candidate IDs (no lock).
+   *   2. UPDATE with WHERE status = 'PENDING' as a compare-and-swap guard.
+   * A concurrent worker racing for the same candidates will see count = 0 on
+   * its UPDATE and bail out immediately, preventing double-processing.
    */
   async claimBatch(): Promise<string[]> {
-    const batchSize = this.batchSize;
+    const candidates = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM outbox_events
+      WHERE status = 'PENDING'
+        AND nextRetryAt <= NOW()
+        AND attempts < maxAttempts
+      ORDER BY nextRetryAt ASC
+      LIMIT ${Prisma.raw(String(this.batchSize))}
+    `;
 
-    return this.prisma.$transaction(async (tx) => {
-      // SKIP LOCKED skips rows already locked by another transaction,
-      // enabling safe parallel consumption by multiple NestJS instances.
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT id FROM outbox_events
-        WHERE status = 'PENDING'
-          AND nextRetryAt <= NOW()
-          AND attempts < maxAttempts
-        LIMIT ${Prisma.raw(String(batchSize))}
-        FOR UPDATE SKIP LOCKED
-      `;
+    if (candidates.length === 0) return [];
 
-      if (rows.length === 0) return [];
+    const ids = candidates.map((r) => r.id);
 
-      const ids = rows.map((r) => r.id);
-      await tx.outboxEvent.updateMany({
-        where: { id: { in: ids } },
-        data:  {
-          status:   OutboxEventStatus.PROCESSING,
-          attempts: { increment: 1 },
-        },
-      });
-      return ids;
+    const { count } = await this.prisma.outboxEvent.updateMany({
+      where: { id: { in: ids }, status: OutboxEventStatus.PENDING },
+      data:  { status: OutboxEventStatus.PROCESSING, attempts: { increment: 1 } },
     });
+
+    // Another worker claimed this batch between our SELECT and UPDATE.
+    if (count === 0) return [];
+
+    return ids;
   }
 
   /**

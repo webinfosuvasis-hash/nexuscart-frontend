@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { PaymentOrchestratorService } from './payment-orchestrator.service';
+import { PaymentOrchestratorService }             from './payment-orchestrator.service';
+import { PaymentOrchestratorNotificationService } from './payment-orchestrator-notification.service';
 
-// PrismaService and ConfigService are @Global — no explicit import needed.
+// PrismaService, ConfigService, and EventEmitter2 are @Global — no explicit imports needed.
 @Module({
-  providers: [PaymentOrchestratorService],
+  providers: [PaymentOrchestratorService, PaymentOrchestratorNotificationService],
   exports:   [PaymentOrchestratorService],
 })
 export class PaymentOrchestratorModule {}

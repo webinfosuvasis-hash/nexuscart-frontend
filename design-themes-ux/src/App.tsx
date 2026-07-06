@@ -10,6 +10,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { StoreProvider } from "@/context/StoreContext";
 import { CartProvider, CartErrorBoundary } from "@/context/CartContext";
 import { RegistryProvider } from "@/context/RegistryContext";
+import { CustomerAuthProvider } from "@/context/CustomerAuthContext";
+import { ProtectedRoute, GuestOnlyRoute } from "@/components/auth/ProtectedRoute";
 import CartDrawer from "@/components/CartDrawer";
 
 const Index        = lazy(() => import("./pages/Index"));
@@ -18,6 +20,17 @@ const ListingPage  = lazy(() => import("./pages/ListingPage"));
 const CartPage     = lazy(() => import("./pages/CartPage"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const RegistryPage = lazy(() => import("./pages/RegistryPage"));
+const LoginPage          = lazy(() => import("./pages/LoginPage"));
+const RegisterPage       = lazy(() => import("./pages/RegisterPage"));
+const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage"));
+const ResetPasswordPage  = lazy(() => import("./pages/ResetPasswordPage"));
+const VerifyEmailPage    = lazy(() => import("./pages/VerifyEmailPage"));
+const AccountPage        = lazy(() => import("./pages/AccountPage"));
+const AddressBookPage    = lazy(() => import("./pages/AddressBookPage"));
+const OrderHistoryPage   = lazy(() => import("./pages/OrderHistoryPage"));
+const OrderDetailsPage   = lazy(() => import("./pages/OrderDetailsPage"));
+const ShipmentTrackingPage = lazy(() => import("./pages/ShipmentTrackingPage"));
+const CancellationPage = lazy(() => import("./pages/CancellationPage"));
 const NotFound     = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -45,6 +58,7 @@ const App = () => (
     <StoreProvider>
       <RegistryProvider>
         <QueryClientProvider client={queryClient}>
+          <CustomerAuthProvider>
           <CartErrorBoundary>
           <CartProvider>
             <TooltipProvider>
@@ -67,6 +81,28 @@ const App = () => (
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />
                     <Route path="/registry" element={<RegistryPage />} />
+
+                    {/* Auth — redirect away if already logged in */}
+                    <Route element={<GuestOnlyRoute />}>
+                      <Route path="/login" element={<LoginPage />} />
+                      <Route path="/register" element={<RegisterPage />} />
+                      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                    </Route>
+                    {/* Reachable regardless of auth state — a reset/verify link may be
+                        opened while a different session is still active in this browser. */}
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
+                    <Route path="/verify-email" element={<VerifyEmailPage />} />
+
+                    {/* Requires a logged-in customer */}
+                    <Route element={<ProtectedRoute />}>
+                      <Route path="/account" element={<AccountPage />} />
+                      <Route path="/account/addresses" element={<AddressBookPage />} />
+                      <Route path="/account/orders" element={<OrderHistoryPage />} />
+                      <Route path="/account/orders/:orderId" element={<OrderDetailsPage />} />
+                      <Route path="/account/orders/:orderId/tracking" element={<ShipmentTrackingPage />} />
+                      <Route path="/account/orders/:orderId/cancel" element={<CancellationPage />} />
+                    </Route>
+
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </Suspense>
@@ -74,6 +110,7 @@ const App = () => (
             </TooltipProvider>
           </CartProvider>
           </CartErrorBoundary>
+          </CustomerAuthProvider>
         </QueryClientProvider>
       </RegistryProvider>
     </StoreProvider>

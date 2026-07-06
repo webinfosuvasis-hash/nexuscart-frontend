@@ -145,6 +145,13 @@ async function bootstrap() {
       .addTag('Subscriptions')
       .addTag('Users')
       .addTag('Theme Engine')
+      .addTag('Customer Auth')
+      .addTag('Customer Profile')
+      .addTag('Customer Address Book')
+      .addTag('Customer Payment')
+      .addTag('Customer Orders')
+      .addTag('Customer Shipment Tracking')
+      .addTag('Customer Cancellation & Refunds')
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);

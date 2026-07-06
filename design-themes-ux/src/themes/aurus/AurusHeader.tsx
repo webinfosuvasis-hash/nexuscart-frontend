@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '@/context/StoreContext';
 import { useCartContext } from '@/context/CartContext';
+import { useAuth } from '@/context/CustomerAuthContext';
 import {
   Search, Heart, ShoppingBag, User, ChevronDown, Store,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ const AurusHeader: React.FC<Props> = ({
 }) => {
   const { wishlist } = useStore();
   const { itemCount, setCartOpen } = useCartContext();
+  const { isAuthenticated, customer } = useAuth();
   const navigate = useNavigate();
 
   const [activeNav,      setActiveNav]      = useState(initialNav);
@@ -183,7 +185,12 @@ const AurusHeader: React.FC<Props> = ({
           </button>
 
           {/* Account */}
-          <button className="flex-shrink-0 text-gray-600 hover:text-purple-700 transition-colors" aria-label="Account">
+          <button
+            onClick={() => navigate(isAuthenticated ? '/account' : '/login')}
+            className="flex-shrink-0 text-gray-600 hover:text-purple-700 transition-colors"
+            aria-label={isAuthenticated ? `Account — ${customer?.name}` : 'Log in'}
+            title={isAuthenticated ? customer?.name : 'Log in'}
+          >
             <User className="w-[19px] h-[19px]" />
           </button>
 

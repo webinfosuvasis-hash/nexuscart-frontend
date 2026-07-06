@@ -1,3 +1,5 @@
+import type { AuthenticatedCustomer } from '@/modules/customer-auth/types/customer-auth.types';
+
 declare global {
   namespace Express {
     interface Request {
@@ -9,6 +11,10 @@ declare global {
       spanId?: string;
       correlationId?: string;
       requestId?: string;
+      // FI-1 — set only by CustomerJwtAuthGuard; distinct from `user`
+      // (the merchant/staff principal) so the two identities can never
+      // be confused by a downstream handler.
+      customer?: AuthenticatedCustomer;
     }
   }
 }

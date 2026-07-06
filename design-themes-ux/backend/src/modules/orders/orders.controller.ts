@@ -69,15 +69,15 @@ export class OrdersController {
     return this.orders.addShipment(storeId, id, shipmentData);
   }
 
-  @Post(':id/refund')
+  @Post(':id/refund/manual')
   @Permissions('orders:update')
-  @ApiOperation({ summary: 'Create a refund for an order' })
-  createRefund(
+  @ApiOperation({ summary: 'Record a manual (admin) refund — does NOT trigger gateway. Use POST :id/cancel for gateway-integrated refunds.' })
+  recordManualRefund(
     @CurrentStore() storeId: string,
     @Param('id') id: string,
     @Body() body: { amount: number; reason: string },
     @CurrentUser('id') userId: string,
   ) {
-    return this.orders.createRefund(storeId, id, body.amount, body.reason, userId);
+    return this.orders.recordManualRefund(storeId, id, body.amount, body.reason, userId);
   }
 }
