@@ -127,10 +127,11 @@ const FeaturedProductsSection: React.FC<SectionComponentProps<FeaturedProductsCo
       {/* Right: lavender product carousel */}
       <div className="flex-1 w-full px-5 sm:px-6 pt-5 pb-5 flex flex-col justify-between overflow-hidden" style={{ background: r.backgroundColor }}>
         <div className="flex gap-4 overflow-hidden">
-          {products.slice(polkiIdx, polkiIdx + polkiVisible).map((p, i) => (
-            <Link key={p.id} to={`/products/${p.id}`} className="flex-shrink-0 group" style={{ width: i === 0 ? '195px' : '175px' }}>
-              <div className={`aspect-square bg-white overflow-hidden border-2 transition-all duration-200 rounded-xl ${i === 0 ? 'border-purple-400 shadow-[0_4px_20px_rgba(107,33,168,0.2)]' : 'border-transparent hover:border-purple-300 hover:shadow-md'}`}>
-                <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-400" />
+          {products.slice(polkiIdx, polkiIdx + polkiVisible).map((p) => (
+            <Link key={p.id} to={`/products/${p.id}`} className="flex-shrink-0 group w-[175px]">
+              {/* Portrait 3:4 box, anchored to the top: product shots are tall, a square crop cut heads/hems */}
+              <div className="aspect-[3/4] bg-white overflow-hidden border-2 border-transparent transition-all duration-200 rounded-xl group-hover:border-purple-300 group-hover:shadow-md">
+                <img src={p.image} alt={p.name} loading="lazy" className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-400" />
               </div>
               <div className="mt-3 pr-1">
                 <div className="flex items-baseline gap-2 flex-wrap">

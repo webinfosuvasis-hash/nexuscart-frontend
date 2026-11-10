@@ -620,19 +620,14 @@ const AurusHome: React.FC = () => {
                 <Link
                   key={p.id}
                   to={`/products/${p.id}`}
-                  className="flex-shrink-0 group"
-                  style={{ width: i === 0 ? '195px' : '175px' }}
+                  className="flex-shrink-0 group w-[175px]"
                 >
-                  {/* White rounded card */}
-                  <div className={`aspect-square bg-white overflow-hidden border-2 transition-all duration-200 rounded-xl ${
-                    i === 0
-                      ? 'border-purple-400 shadow-[0_4px_20px_rgba(107,33,168,0.2)]'
-                      : 'border-transparent hover:border-purple-300 hover:shadow-md'
-                  }`}>
+                  {/* White rounded card — portrait, top-anchored so faces aren't cropped */}
+                  <div className="aspect-[3/4] bg-white overflow-hidden border-2 border-transparent transition-all duration-200 rounded-xl group-hover:border-purple-300 group-hover:shadow-md">
                     <img
                       src={p.image}
                       alt={p.name}
-                      loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-400"
+                      loading="lazy" className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-400"
                     />
                   </div>
 
