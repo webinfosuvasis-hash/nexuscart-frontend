@@ -14,6 +14,9 @@ const VENDOR_SUMMARY = { id: true, name: true, status: true } as const;
 // (what the seed writes and the storefront's parseJsonArray reads). Prisma
 // rejects a JS array for a String column, so encode on every write.
 const toJsonText = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v ?? []));
+// ProductVariant.options is a LongText column holding JSON; the admin sends an object.
+const toVariantOptionsText = (v: unknown): string | null | undefined =>
+  v === undefined || v === null || typeof v === 'string' ? (v as string | null | undefined) : JSON.stringify(v);
 
 @Injectable()
 export class ProductsService {
@@ -98,6 +101,7 @@ export class ProductsService {
     const preparedVariants = variants?.map((v, i) => ({
       ...v,
       sku: v.sku?.trim() || `${sku}-V${i + 1}`,
+      options: toVariantOptionsText((v as any).options),
     }));
 
     return this.prisma.product.create({
@@ -131,6 +135,7 @@ export class ProductsService {
     const preparedVariants = variants?.map((v, i) => ({
       ...v,
       sku: v.sku?.trim() || `${existing.sku}-V${i + 1}`,
+      options: toVariantOptionsText((v as any).options),
     }));
 
     const variantsWrite =
