@@ -10,8 +10,10 @@
  *   - include a freshly-generated `Idempotency-Key` on every mutating request
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
-const STORE_ID = import.meta.env.VITE_STORE_ID || 'default';
+import { API_BASE_URL, STORE_ID as CONFIGURED_STORE_ID } from './env';
+
+const BASE_URL = API_BASE_URL;
+const STORE_ID = CONFIGURED_STORE_ID || 'default';
 
 // ─── Response types (match CartResponseDto exactly) ──────────────────────────
 
@@ -51,7 +53,6 @@ export interface CartShipping {
 export interface Cart {
   id: string;
   storeId: string;
-  sessionId: string;
   customerId: string | null;
   status: string;
   version: number;
@@ -147,6 +148,20 @@ async function cartFetch<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const getCart = (): Promise<Cart> =>
   cartFetch<Cart>('');
+
+/**
+ * Logout: the backend issues this browser a fresh, empty cart session cookie,
+ * so the next person on a shared device doesn't inherit the previous bag,
+ * address or checkout. 204, no body.
+ */
+export async function rotateCartSession(): Promise<void> {
+  const res = await fetch(`${BASE_URL}/cart/session/rotate`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-Store-Id': STORE_ID },
+  });
+  if (!res.ok) throw new CartApiError(res.status, null, res.statusText);
+}
 
 export interface AddToCartInput {
   productId:   string;

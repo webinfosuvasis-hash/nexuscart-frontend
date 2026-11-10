@@ -3,13 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/CustomerAuthContext';
 import { CustomerAuthApiError } from '@/lib/customerAuthApi';
+import { authPath, safeRedirect } from '@/lib/authRedirect';
 import {
-  AuthLayout, AuthField, AuthErrorBanner, AuthSubmitButton, SERIF,
+  AuthLayout, AuthField, AuthErrorBanner, AuthSubmitButton, GuestCheckoutReturn, SERIF,
 } from '@/components/auth/AuthLayout';
 
 const AurusRegister: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const redirect = safeRedirect(searchParams.get('redirect'));
   const { register } = useAuth();
 
   const [name, setName] = useState('');
@@ -35,7 +37,6 @@ const AurusRegister: React.FC = () => {
     try {
       await register({ name, email, password, phone: phone || undefined });
       toast.success('Welcome to Aurus! Check your email to verify your account.');
-      const redirect = searchParams.get('redirect') || '/';
       navigate(redirect, { replace: true });
     } catch (err) {
       setError(
@@ -52,6 +53,8 @@ const AurusRegister: React.FC = () => {
     <AuthLayout maxWidth={460}>
       <h1 className="text-[22px] font-bold text-gray-900 mb-1" style={SERIF}>Create your account</h1>
       <p className="text-[13px] text-gray-500 mb-6">Join Aurus for a faster, personalised checkout</p>
+
+      <GuestCheckoutReturn redirect={redirect} />
 
       {error && <AuthErrorBanner message={error} />}
 
@@ -106,7 +109,7 @@ const AurusRegister: React.FC = () => {
 
       <p className="text-[12.5px] text-gray-500 text-center mt-6">
         Already have an account?{' '}
-        <Link to="/login" className="text-purple-700 font-semibold hover:underline">
+        <Link to={authPath('/login', redirect)} className="text-purple-700 font-semibold hover:underline">
           Log in
         </Link>
       </p>

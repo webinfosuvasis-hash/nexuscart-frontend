@@ -152,6 +152,7 @@ model Store {
   owner              User                  @relation("StoreOwner", fields: [ownerId], references: [id])
   subscription       Subscription?
   suppliers          Supplier[]
+  vendors            Vendor[]
   symbolDocuments    SymbolDocument[]      @relation("SymbolDocuments")
   themeConfigs       ThemeConfig[]
   themeDocuments     ThemeDocument[]       @relation("ThemeDocuments")
@@ -165,26 +166,39 @@ model Store {
 }
 
 model StoreSettings {
-  id                String   @id @default(cuid())
-  storeId           String   @unique
-  logo              String?
-  favicon           String?
-  primaryColor      String   @default("#4f46e5")
-  currency          String   @default("INR")
-  language          String   @default("en")
-  timezone          String   @default("Asia/Kolkata")
-  metaTitle         String?
-  metaDescription   String?  @db.Text
-  taxEnabled        Boolean  @default(false)
-  taxRate           Decimal  @default(0.00) @db.Decimal(5, 2)
-  facebook          String?
-  instagram         String?
-  twitter           String?
-  youtube           String?
-  orderEmailEnabled Boolean  @default(true)
-  lowStockThreshold Int      @default(10)
-  updatedAt         DateTime @updatedAt
-  store             Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id                     String   @id @default(cuid())
+  storeId                String   @unique
+  logo                   String?
+  favicon                String?
+  primaryColor           String   @default("#4f46e5")
+  currency               String   @default("INR")
+  language               String   @default("en")
+  timezone               String   @default("Asia/Kolkata")
+  metaTitle              String?
+  metaDescription        String?  @db.Text
+  taxEnabled             Boolean  @default(false)
+  taxRate                Decimal  @default(0.00) @db.Decimal(5, 2)
+  facebook               String?
+  instagram              String?
+  twitter                String?
+  youtube                String?
+  orderEmailEnabled      Boolean  @default(true)
+  lowStockThreshold      Int      @default(10)
+  // ─── Invoice Module (Phase 8) — seller/company billing profile ───────────
+  // All optional: existing stores have none of this filled in yet, and
+  // invoice generation must degrade gracefully rather than require it.
+  legalBusinessName      String?
+  gstin                  String?  @db.VarChar(20)
+  registeredAddressLine1 String?
+  registeredAddressLine2 String?
+  registeredCity         String?
+  registeredState        String?
+  registeredPostalCode   String?
+  registeredCountry      String?  @default("India")
+  businessPhone          String?
+  businessEmail          String?
+  updatedAt              DateTime @updatedAt
+  store                  Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@map("store_settings")
 }
@@ -409,6 +423,8 @@ model Product {
   hsCode            String?
   priceIncludesTax  Boolean                 @default(false)
   taxCategory       String?
+  // Marketplace seller this product belongs to. Null = the store's own inventory.
+  vendorId          String?
   orderItems        OrderItem[]
   collections       ProductCollection[]
   reviews           ProductReview[]
@@ -418,13 +434,120 @@ model Product {
   brand             Brand?                  @relation(fields: [brandId], references: [id])
   category          Category?               @relation(fields: [categoryId], references: [id])
   store             Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  vendor            Vendor?                 @relation(fields: [vendorId], references: [id], onDelete: SetNull)
 
   @@unique([storeId, slug])
   @@unique([storeId, sku])
   @@index([storeId, status])
   @@index([brandId], map: "products_brandId_fkey")
   @@index([categoryId], map: "products_categoryId_fkey")
+  @@index([vendorId], map: "products_vendorId_fkey")
   @@map("products")
+}
+
+// Marketplace seller (sells through the store). Not a Supplier — suppliers are
+// who the store buys stock from (PurchaseOrder); vendors are who it sells for.
+model Vendor {
+  id            String       @id @default(cuid())
+  storeId       String
+  name          String       @db.VarChar(200)
+  email         String       @db.VarChar(320)
+  status        VendorStatus @default(ACTIVE)
+  notifyOnOrder Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  products      Product[]
+  users         VendorUser[]
+  store         Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, name])
+  @@index([storeId, status])
+  @@map("vendors")
+}
+
+// Vendor portal login identity. Deliberately NOT a `User`: vendors authenticate
+// with their own secret (VENDOR_JWT_SECRET) and strategy, so a vendor token can
+// never pass the merchant JwtAuthGuard. vendorId/storeId are fixed at invitation
+// by the store owner and are never taken from the client.
+model VendorUser {
+  id                  String               @id @default(cuid())
+  storeId             String
+  vendorId            String
+  email               String               @db.VarChar(320)
+  name                String               @db.VarChar(200)
+  status              VendorUserStatus     @default(INVITED)
+  passwordHash        String?              @db.VarChar(100)
+  failedLoginAttempts Int                  @default(0)
+  lockedUntil         DateTime?
+  // Bumped on suspend / revoke / password change: every access token carries it,
+  // so a bump invalidates outstanding access tokens on their next request.
+  tokenVersion        Int                  @default(0)
+  invitedById         String?
+  lastLoginAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  vendor              Vendor               @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  refreshTokens       VendorRefreshToken[]
+  authTokens          VendorAuthToken[]
+
+  @@unique([storeId, email])
+  @@index([vendorId])
+  @@map("vendor_users")
+}
+
+// Opaque refresh tokens (SHA-256 stored), rotated on every use; reuse of a
+// revoked token revokes the whole account's sessions.
+model VendorRefreshToken {
+  id           String     @id @default(cuid())
+  vendorUserId String
+  tokenHash    String     @unique @db.VarChar(64)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime   @default(now())
+  vendorUser   VendorUser @relation(fields: [vendorUserId], references: [id], onDelete: Cascade)
+
+  @@index([vendorUserId])
+  @@map("vendor_refresh_tokens")
+}
+
+// Single-use invitation / password-reset tokens (SHA-256 stored, expiring).
+model VendorAuthToken {
+  id           String             @id @default(cuid())
+  vendorUserId String
+  purpose      VendorTokenPurpose
+  tokenHash    String             @unique @db.VarChar(64)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime           @default(now())
+  vendorUser   VendorUser         @relation(fields: [vendorUserId], references: [id], onDelete: Cascade)
+
+  @@index([vendorUserId, purpose])
+  @@map("vendor_auth_tokens")
+}
+
+// Delivery record for one vendor's "new order" email — one row per (order, vendor).
+// The unique key is the idempotency guarantee; delivery is scheduled through the
+// transactional outbox (VENDOR_ORDER_EMAIL events), retried with its backoff.
+// vendorId is a snapshot like OrderItem.vendorId (no FK): history survives vendor deletion.
+model VendorOrderNotification {
+  id          String                   @id @default(cuid())
+  storeId     String
+  orderId     String
+  vendorId    String
+  status      VendorNotificationStatus @default(PENDING)
+  attempts    Int                      @default(0)
+  lastError   String?                  @db.VarChar(500)
+  nextRetryAt DateTime?
+  messageId   String?                  @db.VarChar(255)
+  sentAt      DateTime?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  order       Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, vendorId])
+  @@index([storeId, status])
+  @@index([vendorId])
+  @@map("vendor_order_notifications")
 }
 
 model ProductVersion {
@@ -581,43 +704,45 @@ model PurchaseOrderItem {
 }
 
 model Order {
-  id                   String               @id @default(cuid())
+  id                   String                    @id @default(cuid())
   storeId              String
   customerId           String?
   orderNumber          String
-  status               OrderStatus          @default(PENDING)
-  paymentStatus        PaymentStatus        @default(PENDING)
+  status               OrderStatus               @default(PENDING)
+  paymentStatus        PaymentStatus             @default(PENDING)
   paymentMethod        String?
-  subtotal             Decimal              @db.Decimal(10, 2)
-  discount             Decimal              @default(0.00) @db.Decimal(10, 2)
-  tax                  Decimal              @default(0.00) @db.Decimal(10, 2)
-  shippingCost         Decimal              @default(0.00) @db.Decimal(10, 2)
-  total                Decimal              @db.Decimal(10, 2)
-  refundedAmount       Decimal              @default(0.00) @db.Decimal(10, 2)
-  shippingAddress      String?              @db.LongText
-  billingAddress       String?              @db.LongText
+  subtotal             Decimal                   @db.Decimal(10, 2)
+  discount             Decimal                   @default(0.00) @db.Decimal(10, 2)
+  tax                  Decimal                   @default(0.00) @db.Decimal(10, 2)
+  shippingCost         Decimal                   @default(0.00) @db.Decimal(10, 2)
+  total                Decimal                   @db.Decimal(10, 2)
+  refundedAmount       Decimal                   @default(0.00) @db.Decimal(10, 2)
+  shippingAddress      String?                   @db.LongText
+  billingAddress       String?                   @db.LongText
   couponCode           String?
-  customerNote         String?              @db.Text
+  customerNote         String?                   @db.Text
   checkoutSessionId    String?
   paymentTransactionId String?
-  paymentGatewayCode   String?              @db.VarChar(20)
+  paymentGatewayCode   String?                   @db.VarChar(20)
   confirmedAt          DateTime?
   // Milestone 8's migration (20260703000000_m8_order_cancellation) created these
   // two columns as snake_case, unlike every other column on this table — @map
   // corrects the mismatch without needing a new migration (the physical columns
   // already exist under these names).
-  cancelledAt          DateTime?            @map("cancelled_at")
-  cancellationReason   String?              @db.Text @map("cancellation_reason")
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  cancelledAt          DateTime?                 @map("cancelled_at")
+  cancellationReason   String?                   @map("cancellation_reason") @db.Text
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
   items                OrderItem[]
+  vendorNotifications  VendorOrderNotification[]
   notes                OrderNote[]
   statusHistory        OrderStatusHistory[]
-  customer             Customer?            @relation(fields: [customerId], references: [id])
-  store                Store                @relation(fields: [storeId], references: [id])
+  customer             Customer?                 @relation(fields: [customerId], references: [id])
+  store                Store                     @relation(fields: [storeId], references: [id])
   refunds              Refund[]
   shipments            Shipment[]
   snapshot             OrderSnapshot?
+  invoice              OrderInvoice?
 
   @@unique([storeId, orderNumber])
   @@index([orderNumber])
@@ -648,6 +773,9 @@ model OrderItem {
   taxAmount      Decimal         @default(0.00) @db.Decimal(10, 2)
   taxClass       String?         @db.VarChar(20)
   hsn            String?         @db.VarChar(20)
+  // Vendor that owned the product when the order was placed — a snapshot, not
+  // a relation: reassigning the product or deleting the vendor never rewrites history.
+  vendorId       String?
   order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product        Product         @relation(fields: [productId], references: [id])
   variant        ProductVariant? @relation(fields: [variantId], references: [id])
@@ -655,6 +783,7 @@ model OrderItem {
   @@index([orderId], map: "order_items_orderId_fkey")
   @@index([productId], map: "order_items_productId_fkey")
   @@index([variantId], map: "order_items_variantId_fkey")
+  @@index([vendorId])
   @@map("order_items")
 }
 
@@ -954,19 +1083,48 @@ model Menu {
 }
 
 model MenuItem {
-  id        String     @id @default(cuid())
-  menuId    String
-  parentId  String?
-  label     String
-  url       String?
-  type      String     @default("LINK")
-  sortOrder Int        @default(0)
-  menu      Menu       @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  parent    MenuItem?  @relation("MenuItemTree", fields: [parentId], references: [id])
-  children  MenuItem[] @relation("MenuItemTree")
+  id           String     @id @default(cuid())
+  menuId       String
+  parentId     String?
+  label        String
+  url          String?
+  type         String     @default("LINK")
+  sortOrder    Int        @default(0)
+  // ─── Phase 9 — Dynamic Storefront Navigation ─────────────────────────────
+  // Structured link targets (loose FK-shaped strings, no @relation — matches
+  // this schema's existing convention for cross-entity references such as
+  // Order.checkoutSessionId / Refund.paymentTransactionId). Resolved to a
+  // real URL at read time by StorefrontMenuService; `url` remains the source
+  // of truth for EXTERNAL_URL and for every pre-existing row (linkType null).
+  isActive     Boolean    @default(true)
+  linkType     String?    @db.VarChar(20) // CATEGORY | PRODUCT | BRAND | CMS_PAGE | COLLECTION | EXTERNAL_URL
+  categoryId   String?
+  productId    String?
+  brandId      String?
+  cmsPageId    String?
+  collectionId String?
+  // Mega-menu visual extras — kept as one JSON blob (mirrors HeaderConfig's
+  // own zones/behavior JSON convention) rather than a column per optional
+  // presentation property: { image, icon, banner: {image,link,text},
+  // badge: 'NEW'|'SALE', featuredProductIds: [], featuredCategoryIds: [] }
+  megaMenu     Json?
+  menu         Menu       @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  // Deleting a parent now deletes its whole subtree instead of leaving
+  // children with a dangling parentId — those orphans used to resurface as
+  // bogus top-level nav items, since the storefront resolver deliberately
+  // treats any item whose parent can't be found as a root item (a correct
+  // design choice on its own, just one that made the missing cascade visible
+  // as a real customer-facing bug rather than a silent no-op).
+  parent       MenuItem?  @relation("MenuItemTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children     MenuItem[] @relation("MenuItemTree")
 
   @@index([menuId], map: "menu_items_menuId_fkey")
   @@index([parentId], map: "menu_items_parentId_fkey")
+  @@index([categoryId])
+  @@index([productId])
+  @@index([brandId])
+  @@index([cmsPageId])
+  @@index([collectionId])
   @@map("menu_items")
 }
 
@@ -1507,6 +1665,32 @@ enum UserRole {
   STORE_MANAGER
   STORE_STAFF
   CUSTOMER
+}
+
+enum VendorStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum VendorUserStatus {
+  INVITED // invitation sent, no password yet
+  ACTIVE
+  SUSPENDED // owner paused access; can be re-activated
+  REVOKED // access removed; only a new invitation restores it
+}
+
+enum VendorTokenPurpose {
+  INVITATION
+  PASSWORD_RESET
+}
+
+enum VendorNotificationStatus {
+  PENDING // queued, outbox event pending
+  SENDING // claimed by a worker; never auto-resent (avoids duplicates after a crash)
+  RETRYING // transient SMTP failure; outbox will retry with backoff
+  SENT // accepted by the SMTP server
+  FAILED // permanent failure or retry budget exhausted — manual resend only
+  SKIPPED // vendor inactive, notifications off, vendor deleted, or no items
 }
 
 enum ProductStatus {
@@ -2131,6 +2315,39 @@ model StoreOrderCounter {
 
   @@id([storeId, year])
   @@map("store_order_counters")
+}
+
+// ─── Invoice Module (Phase 8) ────────────────────────────────────────────
+// A GST-compliant tax invoice needs its own sequential number series,
+// separate from Order.orderNumber (P0 finding from the invoice gap audit).
+// One row per (storeId, year), atomically incremented exactly like
+// StoreOrderCounter above — same concurrency-safe pattern, separate sequence.
+model StoreInvoiceCounter {
+  storeId String
+  year    Int
+  counter Int    @default(0)
+
+  @@id([storeId, year])
+  @@map("store_invoice_counters")
+}
+
+// Assigns a stable invoice number to an order the first time an invoice is
+// requested for it (customer or merchant, whichever comes first). The PDF
+// itself is always rendered on demand from live Order/Payment/Shipment data —
+// this row only pins the invoice number + issue date so repeated
+// downloads/prints never renumber the same order's invoice.
+model OrderInvoice {
+  id            String   @id @default(cuid())
+  storeId       String
+  orderId       String   @unique
+  invoiceNumber String
+  issuedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, invoiceNumber])
+  @@index([storeId])
+  @@map("order_invoices")
 }
 
 model OrderSnapshot {

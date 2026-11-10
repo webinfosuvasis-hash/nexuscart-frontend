@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { InventoryReservationService, stockLineKey } from '../../../../shared/inventory/inventory-reservation.service';
 import {
   ICheckoutInventoryEngine,
   CheckoutInventoryInput,
@@ -8,18 +9,25 @@ import {
 
 @Injectable()
 export class DefaultCheckoutInventoryEngine implements ICheckoutInventoryEngine {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reservations: InventoryReservationService,
+  ) {}
 
   async validateBatch(
-    storeId: string,
-    inputs:  CheckoutInventoryInput[],
+    storeId:     string,
+    inputs:      CheckoutInventoryInput[],
+    checkoutId?: string,
   ): Promise<CheckoutInventoryResult[]> {
-    return Promise.all(inputs.map((input) => this.validateOne(storeId, input)));
+    const held = checkoutId ? await this.reservations.heldByCheckout(checkoutId) : new Map<string, number>();
+    return Promise.all(inputs.map((input) =>
+      this.validateOne(storeId, input, held.get(stockLineKey(input.productId, input.variantId)) ?? 0)));
   }
 
   private async validateOne(
     storeId: string,
     input:   CheckoutInventoryInput,
+    heldByThisCheckout: number,
   ): Promise<CheckoutInventoryResult> {
     const product = await this.prisma.product.findFirst({
       where:   { id: input.productId, storeId, deletedAt: null },
@@ -60,7 +68,7 @@ export class DefaultCheckoutInventoryEngine implements ICheckoutInventoryEngine 
         };
       }
 
-      const available  = variant.stock;
+      const available  = variant.stock + heldByThisCheckout;
       const isOos      = available <= 0;
       const isLow      = available > 0 && available < 5;
       const adjQty     = isOos ? 0 : Math.min(input.requestedQuantity, available);
@@ -84,7 +92,7 @@ export class DefaultCheckoutInventoryEngine implements ICheckoutInventoryEngine 
       };
     }
 
-    const available    = product.stock;
+    const available    = product.stock + heldByThisCheckout;
     const isOos        = available <= 0;
     const isLow        = available > 0 && available < 5;
     const adjQty       = isOos ? 0 : Math.min(input.requestedQuantity, available);

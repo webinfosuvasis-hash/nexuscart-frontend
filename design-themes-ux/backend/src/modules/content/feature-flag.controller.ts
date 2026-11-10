@@ -1,12 +1,13 @@
 import {
   Controller, Get, Post, Param, Body,
-  UseGuards, BadRequestException, ForbiddenException,
+  BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { FeatureFlagService, FeatureFlag, KNOWN_FLAGS } from './feature-flag.service';
-import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
+import { Permissions } from '@/common/decorators/permissions.decorator';
 
-@UseGuards(JwtAuthGuard)
+// Authenticated by the global JwtAuthGuard. Not re-applied here: a controller-level
+// JwtAuthGuard re-runs passport and replaces the store-scoped principal set by StoreContextGuard.
 @Controller('content/flags')
 export class FeatureFlagController {
   constructor(private readonly flags: FeatureFlagService) {}
@@ -17,8 +18,17 @@ export class FeatureFlagController {
     }
   }
 
+  // GET /content/flags/known — list valid flag names. Declared before
+  // ':storeId' so the static path is not captured by the parameter route.
+  @Get('known')
+  @Permissions('theme:read')
+  getKnown() {
+    return { flags: KNOWN_FLAGS };
+  }
+
   // GET /content/flags/:storeId — all flags for a store
   @Get(':storeId')
+  @Permissions('theme:read')
   async getAll(@Param('storeId') storeId: string, @CurrentUser() user: any) {
     this.assertStoreAccess(user, storeId);
     return this.flags.getAll(storeId);
@@ -26,44 +36,40 @@ export class FeatureFlagController {
 
   // GET /content/flags/:storeId/audit — audit log for a store
   @Get(':storeId/audit')
+  @Permissions('theme:read')
   async getAudit(@Param('storeId') storeId: string, @CurrentUser() user: any) {
     this.assertStoreAccess(user, storeId);
     return this.flags.getAuditLog(storeId);
   }
 
-  // GET /content/flags/known — list valid flag names
-  @Get('known')
-  getKnown() {
-    return { flags: KNOWN_FLAGS };
-  }
-
-  // POST /content/flags/:storeId/enable  { flag, actorId? }
+  // POST /content/flags/:storeId/enable  { flag }
+  // The audit actor is the authenticated user — never a client-supplied id.
   @Post(':storeId/enable')
+  @Permissions('theme:publish')
   async enable(
     @Param('storeId') storeId: string,
     @Body('flag')     flag:    string,
-    @Body('actorId')  actorId: string | undefined,
     @CurrentUser()    user:    any,
   ) {
     this.assertStoreAccess(user, storeId);
     if (!flag) throw new BadRequestException('flag is required');
     this.flags.validateFlag(flag);
-    await this.flags.enable(storeId, flag as FeatureFlag, actorId);
-    return { storeId, flag, enabled: true, actorId: actorId ?? 'system' };
+    await this.flags.enable(storeId, flag as FeatureFlag, user.id);
+    return { storeId, flag, enabled: true, actorId: user.id };
   }
 
-  // POST /content/flags/:storeId/disable  { flag, actorId? }
+  // POST /content/flags/:storeId/disable  { flag }
   @Post(':storeId/disable')
+  @Permissions('theme:publish')
   async disable(
     @Param('storeId') storeId: string,
     @Body('flag')     flag:    string,
-    @Body('actorId')  actorId: string | undefined,
     @CurrentUser()    user:    any,
   ) {
     this.assertStoreAccess(user, storeId);
     if (!flag) throw new BadRequestException('flag is required');
     this.flags.validateFlag(flag);
-    await this.flags.disable(storeId, flag as FeatureFlag, actorId);
-    return { storeId, flag, enabled: false, actorId: actorId ?? 'system' };
+    await this.flags.disable(storeId, flag as FeatureFlag, user.id);
+    return { storeId, flag, enabled: false, actorId: user.id };
   }
 }

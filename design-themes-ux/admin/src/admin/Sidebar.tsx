@@ -58,7 +58,7 @@ export const NAV = [
   {
     group: 'Operations',
     items: [
-      { id: 'marketplace', label: 'Marketplace', icon: Store },
+      { id: 'marketplace', label: 'Vendors', icon: Store },
     ],
   },
   {

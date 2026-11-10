@@ -3,18 +3,24 @@ export const NAV_ITEMS = [
   'Co-ord Sets', 'Festive Edit', 'Collections', 'New Arrivals', 'Gifting', 'Trending',
 ];
 
+/**
+ * Fallback nav targets — used only when the store has no live menu (or the
+ * menu API is down). Keyword search, not hardcoded category slugs: slugs
+ * differ per store, and a wrong slug renders "Category not found", whereas a
+ * search always resolves (worst case to an empty result set).
+ */
 export const NAV_LINKS: Record<string, string> = {
-  'Sarees':        '/jewellery/sarees',
-  'Kurtas & Sets': '/jewellery/kurtas',
-  'Blouses':       '/jewellery/blouses',
-  'Lehenga':       '/jewellery/lehenga',
-  'Dupattas':      '/jewellery/dupattas',
-  'Co-ord Sets':   '/jewellery/coord-sets',
-  'Festive Edit':  '/jewellery/festive',
-  'Collections':   '/jewellery/collections',
-  'New Arrivals':  '/jewellery/new-arrivals',
-  'Gifting':       '/jewellery/gifting',
-  'Trending':      '/jewellery/trending',
+  'Sarees':        '/search?q=saree',
+  'Kurtas & Sets': '/search?q=kurti',
+  'Blouses':       '/search?q=blouse',
+  'Lehenga':       '/search?q=lehenga',
+  'Dupattas':      '/search?q=dupatta',
+  'Co-ord Sets':   '/search?q=co-ord',
+  'Festive Edit':  '/search?q=festive',
+  'Collections':   '/jewellery',
+  'New Arrivals':  '/jewellery?sortBy=newest',
+  'Gifting':       '/search?q=gift',
+  'Trending':      '/jewellery?sortBy=popularity',
 };
 
 export const GARMENT_MENU = {

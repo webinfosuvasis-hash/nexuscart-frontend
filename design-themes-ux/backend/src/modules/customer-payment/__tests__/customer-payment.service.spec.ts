@@ -1,4 +1,5 @@
-import { BadRequestException, GoneException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, GoneException, NotFoundException } from '@nestjs/common';
+import { InsufficientStockException } from '@/shared/inventory/inventory-reservation.service';
 import { CheckoutStatus, PaymentTxStatus } from '@prisma/client';
 import { CustomerPaymentService } from '../customer-payment.service';
 import { InvalidPaymentTransitionException } from '@/modules/payment/exceptions/payment.exceptions';
@@ -8,12 +9,14 @@ const CUSTOMER = {
   id: 'cust_1', storeId: STORE_ID, email: 'priya@example.com', name: 'Priya Sharma', isActive: true,
 };
 const CHECKOUT_ID = 'checkout_1';
+const CART_SESSION = 'c'.repeat(32);
 const PAYMENT_ID = 'pay_1';
 
 function makeCheckout(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: CHECKOUT_ID,
     storeId: STORE_ID,
+    sessionId: CART_SESSION,
     customerId: null,
     status: CheckoutStatus.VALIDATED,
     expiresAt: new Date(Date.now() + 60 * 60_000),
@@ -25,6 +28,8 @@ function makeSummary(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     validation: { isValid: true, hasBlockers: false, issues: [] },
     totals: { grandTotal: 999.5, currencyCode: 'INR' },
+    items: [{ productId: 'prod_1', variantId: null, quantity: 2 }],
+    expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
     ...overrides,
   } as any;
 }
@@ -67,10 +72,13 @@ function makeDeps() {
     storePaymentConfig: {
       findUnique: jest.fn().mockResolvedValue({ defaultGateway: 'razorpay' }),
     },
+    order: {
+      findFirst: jest.fn().mockResolvedValue({ orderNumber: 'ORD-2026-000001' }),
+    },
   } as any;
 
   const checkoutService = {
-    getSummary: jest.fn().mockResolvedValue(makeSummary()),
+    getSummaryForVerifiedOwner: jest.fn().mockResolvedValue(makeSummary()),
   } as any;
 
   const paymentService = {
@@ -91,18 +99,25 @@ function makeDeps() {
     resolve: jest.fn().mockReturnValue(webhookGateway),
   } as any;
 
+  const reservations = {
+    reserveForPayment: jest.fn().mockResolvedValue(undefined),
+    hasLiveHold: jest.fn().mockResolvedValue(true),
+    transferToPayment: jest.fn().mockResolvedValue(true),
+  } as any;
+
   return {
-    prisma, checkoutService, paymentService, orchestrator, gatewayRegistry, webhookGateway, directGateway,
+    prisma, checkoutService, paymentService, orchestrator, gatewayRegistry, webhookGateway, directGateway, reservations,
   };
 }
 
 function makeService(deps: ReturnType<typeof makeDeps>) {
   return new CustomerPaymentService(
-    deps.prisma, deps.checkoutService, deps.paymentService, deps.orchestrator, deps.gatewayRegistry,
+    deps.prisma, deps.checkoutService, deps.paymentService, deps.orchestrator, deps.gatewayRegistry, deps.reservations,
   );
 }
 
-const FAKE_REQ = {} as any;
+// The cart session the checkout was started with — required to claim it.
+const FAKE_REQ = { cartSessionId: CART_SESSION } as any;
 
 describe('CustomerPaymentService — initiatePayment', () => {
   it('claims an unclaimed checkout for the paying customer', async () => {
@@ -135,7 +150,7 @@ describe('CustomerPaymentService — initiatePayment', () => {
     const service = makeService(deps);
 
     await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, FAKE_REQ)).rejects.toBeInstanceOf(NotFoundException);
-    expect(deps.checkoutService.getSummary).not.toHaveBeenCalled();
+    expect(deps.checkoutService.getSummaryForVerifiedOwner).not.toHaveBeenCalled();
   });
 
   it('does not re-claim (no write) a checkout already owned by this same customer', async () => {
@@ -174,7 +189,7 @@ describe('CustomerPaymentService — initiatePayment', () => {
   it('rejects when the live-recomputed checkout summary is not valid', async () => {
     const deps = makeDeps();
     deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
-    deps.checkoutService.getSummary.mockResolvedValue(makeSummary({
+    deps.checkoutService.getSummaryForVerifiedOwner.mockResolvedValue(makeSummary({
       validation: { isValid: false, hasBlockers: true, issues: [{ code: 'OUT_OF_STOCK', severity: 'error', message: 'Item out of stock' }] },
     }));
     const service = makeService(deps);
@@ -192,6 +207,30 @@ describe('CustomerPaymentService — initiatePayment', () => {
     await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, { gatewayCode: 'stripe' }, FAKE_REQ))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(deps.paymentService.createPaymentAttempt).not.toHaveBeenCalled();
+  });
+
+  it('never lets a shopper pay through the internal mock gateway, even if the store has it active', async () => {
+    const deps = makeDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
+    deps.prisma.storePaymentMethod.findFirst.mockResolvedValue({ id: 'pm_mock', gatewayCode: 'mock', isActive: true });
+    const service = makeService(deps);
+
+    await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, { gatewayCode: 'mock' }, FAKE_REQ))
+      .rejects.toBeInstanceOf(BadRequestException);
+    expect(deps.paymentService.createPaymentAttempt).not.toHaveBeenCalled();
+    expect(deps.paymentService.startPayment).not.toHaveBeenCalled();
+  });
+
+  it('refuses a store whose default gateway is mock when the request names none', async () => {
+    const deps = makeDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
+    deps.prisma.storePaymentConfig.findUnique.mockResolvedValue({ defaultGateway: 'mock' });
+    deps.prisma.storePaymentMethod.findFirst.mockResolvedValue({ id: 'pm_mock', gatewayCode: 'mock', isActive: true });
+    const service = makeService(deps);
+
+    await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, FAKE_REQ)).rejects.toBeInstanceOf(BadRequestException);
+    expect(deps.paymentService.createPaymentAttempt).not.toHaveBeenCalled();
+    expect(deps.paymentService.startPayment).not.toHaveBeenCalled();
   });
 
   it('resolves the store default gateway when none is specified in the request', async () => {
@@ -212,7 +251,7 @@ describe('CustomerPaymentService — initiatePayment', () => {
   it('converts the rupee grandTotal to integer paise for the payment amount', async () => {
     const deps = makeDeps();
     deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
-    deps.checkoutService.getSummary.mockResolvedValue(makeSummary({ totals: { grandTotal: 1234.56, currencyCode: 'INR' } }));
+    deps.checkoutService.getSummaryForVerifiedOwner.mockResolvedValue(makeSummary({ totals: { grandTotal: 1234.56, currencyCode: 'INR' } }));
     deps.paymentService.createPaymentAttempt.mockResolvedValue(makeTx({ status: PaymentTxStatus.PENDING }));
     deps.paymentService.startPayment.mockResolvedValue({ transaction: makeTx() });
     const service = makeService(deps);
@@ -281,6 +320,9 @@ describe('CustomerPaymentService — initiatePayment', () => {
     expect(deps.orchestrator.completePayment).toHaveBeenCalledWith(PAYMENT_ID, STORE_ID);
     expect(result.status).toBe(PaymentTxStatus.CAPTURED);
     expect(result.orderId).toBe('order_1');
+    // The confirmation shows the customer-facing number, scoped to the payment's store.
+    expect(result.orderNumber).toBe('ORD-2026-000001');
+    expect(deps.prisma.order.findFirst).toHaveBeenCalledWith({ where: { id: 'order_1', storeId: STORE_ID }, select: { orderNumber: true } });
   });
 
   it('maps a PaymentException thrown by startPayment into a proper HTTP exception', async () => {
@@ -374,7 +416,7 @@ describe('CustomerPaymentService — getPaymentStatus / getPaymentDetails', () =
 
     const result = await service.getPaymentStatus(PAYMENT_ID, CUSTOMER);
 
-    expect(result).toEqual({ id: PAYMENT_ID, status: PaymentTxStatus.CAPTURED, orderId: 'order_1' });
+    expect(result).toEqual({ id: PAYMENT_ID, status: PaymentTxStatus.CAPTURED, orderId: 'order_1', orderNumber: 'ORD-2026-000001' });
   });
 
   it('getPaymentDetails never leaks gatewaySignature/checkoutSnapshot-style internals', async () => {
@@ -405,5 +447,216 @@ describe('CustomerPaymentService — getPaymentStatus / getPaymentDetails', () =
     const service = makeService(deps);
 
     await expect(service.getPaymentDetails(PAYMENT_ID, CUSTOMER)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('CustomerPaymentService — guest checkout', () => {
+  const SESSION_ID = 'a'.repeat(32);
+  const GUEST_REQ = { storeId: STORE_ID, cartSessionId: SESSION_ID } as any;
+  const GUEST_ADDRESS = { firstName: 'Asha', lastName: 'Rao', email: 'asha@example.com' };
+
+  function makeGuestDeps() {
+    const deps = makeDeps();
+    deps.prisma.checkoutAddressSnapshot = { findFirst: jest.fn().mockResolvedValue(GUEST_ADDRESS) };
+    return deps;
+  }
+
+  it('pays a checkout owned by this cart session, using the shipping address as the payer', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ sessionId: SESSION_ID }));
+    deps.paymentService.createPaymentAttempt.mockResolvedValue(makeTx({ status: PaymentTxStatus.PENDING }));
+    deps.paymentService.startPayment.mockResolvedValue({ transaction: makeTx() });
+    const service = makeService(deps);
+
+    const result = await service.initiateGuestPayment(CHECKOUT_ID, {}, GUEST_REQ);
+
+    expect(deps.prisma.checkoutSession.findFirst).toHaveBeenCalledWith({
+      where: { id: CHECKOUT_ID, storeId: STORE_ID, sessionId: SESSION_ID, customerId: null },
+    });
+    expect(deps.paymentService.startPayment).toHaveBeenCalledWith(
+      PAYMENT_ID, STORE_ID, expect.any(String), { email: 'asha@example.com', name: 'Asha Rao' },
+    );
+    // A guest payment never claims the checkout for anyone.
+    expect(deps.prisma.checkoutSession.update).not.toHaveBeenCalled();
+    expect(result.paymentId).toBe(PAYMENT_ID);
+  });
+
+  it('404s when the checkout belongs to another session or is already claimed by an account', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(null);
+    const service = makeService(deps);
+
+    await expect(service.initiateGuestPayment(CHECKOUT_ID, {}, GUEST_REQ)).rejects.toBeInstanceOf(NotFoundException);
+    expect(deps.paymentService.createPaymentAttempt).not.toHaveBeenCalled();
+  });
+
+  it('404s without touching the database when the request has no cart session', async () => {
+    const deps = makeGuestDeps();
+    const service = makeService(deps);
+
+    await expect(service.initiateGuestPayment(CHECKOUT_ID, {}, { storeId: STORE_ID } as any))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(deps.prisma.checkoutSession.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects a guest checkout whose shipping address has no email', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ sessionId: SESSION_ID }));
+    deps.prisma.checkoutAddressSnapshot.findFirst.mockResolvedValue({ ...GUEST_ADDRESS, email: null });
+    const service = makeService(deps);
+
+    await expect(service.initiateGuestPayment(CHECKOUT_ID, {}, GUEST_REQ)).rejects.toBeInstanceOf(BadRequestException);
+    expect(deps.paymentService.createPaymentAttempt).not.toHaveBeenCalled();
+  });
+
+  it('still enforces payability (expired checkout) on the guest path', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(
+      makeCheckout({ sessionId: SESSION_ID, expiresAt: new Date(Date.now() - 1000) }),
+    );
+    const service = makeService(deps);
+
+    await expect(service.initiateGuestPayment(CHECKOUT_ID, {}, GUEST_REQ)).rejects.toBeInstanceOf(GoneException);
+  });
+
+  it('getGuestPaymentStatus only resolves payments whose checkout is owned by this session', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ status: PaymentTxStatus.CAPTURED, orderId: 'order_1' }));
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue({ id: CHECKOUT_ID });
+    const service = makeService(deps);
+
+    const result = await service.getGuestPaymentStatus(PAYMENT_ID, GUEST_REQ);
+
+    expect(deps.prisma.checkoutSession.findFirst).toHaveBeenCalledWith({
+      where: { id: CHECKOUT_ID, storeId: STORE_ID, sessionId: SESSION_ID, customerId: null },
+      select: { id: true },
+    });
+    expect(result).toEqual({ id: PAYMENT_ID, status: PaymentTxStatus.CAPTURED, orderId: 'order_1', orderNumber: 'ORD-2026-000001' });
+  });
+
+  it('retryGuestPayment 404s for a payment from another session', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx());
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(null);
+    const service = makeService(deps);
+
+    await expect(service.retryGuestPayment(PAYMENT_ID, GUEST_REQ)).rejects.toBeInstanceOf(NotFoundException);
+    expect(deps.paymentService.retryPayment).not.toHaveBeenCalled();
+  });
+
+  it('retryGuestPayment retries with the guest payer details', async () => {
+    const deps = makeGuestDeps();
+    deps.prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ status: PaymentTxStatus.FAILED }));
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue({ id: CHECKOUT_ID });
+    deps.paymentService.retryPayment.mockResolvedValue({ transaction: makeTx({ id: 'pay_2' }) });
+    const service = makeService(deps);
+
+    const result = await service.retryGuestPayment(PAYMENT_ID, GUEST_REQ);
+
+    expect(deps.paymentService.retryPayment).toHaveBeenCalledWith(expect.objectContaining({
+      transactionId: PAYMENT_ID,
+      customerInfo: { email: 'asha@example.com', name: 'Asha Rao' },
+    }));
+    expect(result.paymentId).toBe('pay_2');
+  });
+});
+
+describe('CustomerPaymentService — stock holds and claim ownership', () => {
+  it('holds stock for the payment attempt before the gateway is started', async () => {
+    const deps = makeDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
+    deps.paymentService.createPaymentAttempt.mockResolvedValue(makeTx({ status: PaymentTxStatus.PENDING }));
+    deps.paymentService.startPayment.mockResolvedValue({ transaction: makeTx() });
+    const service = makeService(deps);
+
+    await service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, FAKE_REQ);
+
+    expect(deps.reservations.reserveForPayment).toHaveBeenCalledWith(expect.objectContaining({
+      storeId: STORE_ID,
+      checkoutId: CHECKOUT_ID,
+      paymentTransactionId: PAYMENT_ID,
+      lines: [{ productId: 'prod_1', variantId: null, quantity: 2 }],
+    }));
+    expect(deps.reservations.reserveForPayment.mock.invocationCallOrder[0])
+      .toBeLessThan(deps.paymentService.startPayment.mock.invocationCallOrder[0]);
+  });
+
+  it('never reaches the gateway when the stock is gone (409 from the hold)', async () => {
+    const deps = makeDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
+    deps.paymentService.createPaymentAttempt.mockResolvedValue(makeTx({ status: PaymentTxStatus.PENDING }));
+    deps.reservations.reserveForPayment.mockRejectedValue(new InsufficientStockException(['prod_1']));
+    const service = makeService(deps);
+
+    await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, FAKE_REQ)).rejects.toBeInstanceOf(ConflictException);
+    expect(deps.paymentService.startPayment).not.toHaveBeenCalled();
+    expect(deps.prisma.checkoutSession.updateMany).not.toHaveBeenCalled(); // not marked PAYMENT_INITIATED
+  });
+
+  it('retry moves the live hold to the new attempt instead of taking stock twice', async () => {
+    const deps = makeDeps();
+    deps.prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ status: PaymentTxStatus.FAILED }));
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue({ id: CHECKOUT_ID });
+    deps.paymentService.retryPayment.mockResolvedValue({ transaction: makeTx({ id: 'pay_2' }) });
+    const service = makeService(deps);
+
+    await service.retryPayment(PAYMENT_ID, CUSTOMER);
+
+    expect(deps.reservations.reserveForPayment).not.toHaveBeenCalled();
+    expect(deps.reservations.transferToPayment).toHaveBeenCalledWith(PAYMENT_ID, 'pay_2');
+  });
+
+  it('retry after the hold lapsed re-takes the stock first, then moves it to the new attempt', async () => {
+    const deps = makeDeps();
+    deps.prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ status: PaymentTxStatus.FAILED }));
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue({ id: CHECKOUT_ID });
+    deps.reservations.hasLiveHold.mockResolvedValue(false);
+    deps.paymentService.retryPayment.mockResolvedValue({ transaction: makeTx({ id: 'pay_2' }) });
+    const service = makeService(deps);
+
+    await service.retryPayment(PAYMENT_ID, CUSTOMER);
+
+    expect(deps.reservations.reserveForPayment).toHaveBeenCalledWith(expect.objectContaining({
+      paymentTransactionId: PAYMENT_ID, checkoutId: CHECKOUT_ID,
+    }));
+    expect(deps.reservations.reserveForPayment.mock.invocationCallOrder[0])
+      .toBeLessThan(deps.paymentService.retryPayment.mock.invocationCallOrder[0]);
+    expect(deps.reservations.transferToPayment).toHaveBeenCalledWith(PAYMENT_ID, 'pay_2');
+  });
+
+  it('retry is refused (409) without contacting the gateway when the lapsed stock was sold meanwhile', async () => {
+    const deps = makeDeps();
+    deps.prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ status: PaymentTxStatus.FAILED }));
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue({ id: CHECKOUT_ID });
+    deps.reservations.hasLiveHold.mockResolvedValue(false);
+    deps.reservations.reserveForPayment.mockRejectedValue(new InsufficientStockException(['prod_1']));
+    const service = makeService(deps);
+
+    await expect(service.retryPayment(PAYMENT_ID, CUSTOMER)).rejects.toBeInstanceOf(ConflictException);
+    expect(deps.paymentService.retryPayment).not.toHaveBeenCalled();
+  });
+
+  it('a signed-in customer cannot claim an unclaimed checkout from a different cart session', async () => {
+    const deps = makeDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: null }));
+    const service = makeService(deps);
+
+    await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, { cartSessionId: 'f'.repeat(32) } as any))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, {} as any))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(deps.prisma.checkoutSession.update).not.toHaveBeenCalled();
+    expect(deps.reservations.reserveForPayment).not.toHaveBeenCalled();
+  });
+
+  it('a checkout this customer already owns stays payable from any session (unchanged behaviour)', async () => {
+    const deps = makeDeps();
+    deps.prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout({ customerId: CUSTOMER.id }));
+    deps.paymentService.createPaymentAttempt.mockResolvedValue(makeTx({ status: PaymentTxStatus.PENDING }));
+    deps.paymentService.startPayment.mockResolvedValue({ transaction: makeTx() });
+    const service = makeService(deps);
+
+    const result = await service.initiatePayment(CHECKOUT_ID, CUSTOMER, {}, {} as any);
+    expect(result.paymentId).toBe(PAYMENT_ID);
   });
 });

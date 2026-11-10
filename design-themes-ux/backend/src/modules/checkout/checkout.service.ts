@@ -12,6 +12,7 @@ import { CartStatus, CheckoutStatus, AddressType } from '@prisma/client';
 import { Request } from 'express';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { InventoryReservationService } from '../../shared/inventory/inventory-reservation.service';
 import { CheckoutEngineService } from './engine/checkout-engine.service';
 import { CheckoutEventBus } from './events/checkout-event-bus.service';
 import { CHECKOUT_ADDRESS_VALIDATOR } from './engines/checkout-engine-tokens';
@@ -65,6 +66,7 @@ export class CheckoutService {
     private readonly configSvc:  ConfigService,
     @Inject(CHECKOUT_ADDRESS_VALIDATOR)
     private readonly addrValidator: ICheckoutAddressValidator,
+    private readonly reservations: InventoryReservationService,
   ) {}
 
   private get cfg(): CheckoutConfig {
@@ -161,7 +163,7 @@ export class CheckoutService {
 
   async getCheckout(checkoutId: string, req: Request): Promise<CheckoutSessionResponseDto> {
     const ctx      = ctxFromReq(req);
-    const checkout = await this.requireCheckout(checkoutId, ctx.storeId);
+    const checkout = await this.requireSessionCheckout(checkoutId, ctx);
     const cart     = await this.requireCart(checkout.cartId, ctx.storeId);
     return this.buildResponse(checkout, cart);
   }
@@ -170,7 +172,7 @@ export class CheckoutService {
 
   async updateAddress(checkoutId: string, dto: UpdateAddressDto, req: Request): Promise<CheckoutSessionResponseDto> {
     const ctx      = ctxFromReq(req);
-    const checkout = await this.requireCheckout(checkoutId, ctx.storeId);
+    const checkout = await this.requireSessionCheckout(checkoutId, ctx);
     this.requireNotExpiredOrCancelled(checkout);
 
     const validation = await this.addrValidator.validate(dto.address);
@@ -254,7 +256,7 @@ export class CheckoutService {
 
   async updateShipping(checkoutId: string, dto: UpdateShippingDto, req: Request): Promise<CheckoutSessionResponseDto> {
     const ctx      = ctxFromReq(req);
-    const checkout = await this.requireCheckout(checkoutId, ctx.storeId);
+    const checkout = await this.requireSessionCheckout(checkoutId, ctx);
     this.requireNotExpiredOrCancelled(checkout);
     this.requireAddressSet(checkout);
 
@@ -284,7 +286,7 @@ export class CheckoutService {
 
   async validateCheckout(checkoutId: string, req: Request): Promise<CheckoutSessionResponseDto> {
     const ctx      = ctxFromReq(req);
-    const checkout = await this.requireCheckout(checkoutId, ctx.storeId);
+    const checkout = await this.requireSessionCheckout(checkoutId, ctx);
     this.requireNotExpiredOrCancelled(checkout);
     this.requireAddressSet(checkout);
 
@@ -319,11 +321,24 @@ export class CheckoutService {
     return this.getCheckout(checkoutId, req);
   }
 
+  /**
+   * Live-recomputed summary for a caller that has already proven ownership
+   * by other means (CustomerPaymentService: customer claim or guest cart
+   * session). Not session-scoped — the authenticated payment call does not
+   * carry the cart cookie on cross-origin deployments. Never expose this
+   * directly over HTTP.
+   */
+  async getSummaryForVerifiedOwner(checkoutId: string, storeId: string): Promise<CheckoutSessionResponseDto> {
+    const checkout = await this.requireCheckout(checkoutId, storeId);
+    const cart     = await this.requireCart(checkout.cartId, storeId);
+    return this.buildResponse(checkout, cart);
+  }
+
   // ─── CANCEL CHECKOUT ──────────────────────────────────────────────────────
 
   async cancelCheckout(checkoutId: string, req: Request): Promise<CheckoutSessionResponseDto> {
     const ctx      = ctxFromReq(req);
-    const checkout = await this.requireCheckout(checkoutId, ctx.storeId);
+    const checkout = await this.requireSessionCheckout(checkoutId, ctx);
 
     if (checkout.status === CheckoutStatus.CANCELLED) {
       throw new BadRequestException('Checkout is already cancelled');
@@ -344,6 +359,9 @@ export class CheckoutService {
       data:  { status: CartStatus.ACTIVE, lockedAt: null, lockedUntil: null },
     });
 
+    // Return any stock held for this checkout's payment attempts.
+    await this.reservations.releaseForCheckout(checkoutId, ctx.storeId);
+
     this.eventBus.emit(new CheckoutCancelledEvent(
       { reason: 'user_cancelled' },
       checkoutId, checkout.cartId, ctx.storeId, ctx.sessionId,
@@ -359,7 +377,7 @@ export class CheckoutService {
 
   async getActivity(checkoutId: string, req: Request) {
     const ctx = ctxFromReq(req);
-    await this.requireCheckout(checkoutId, ctx.storeId);
+    await this.requireSessionCheckout(checkoutId, ctx);
 
     return this.prisma.checkoutActivity.findMany({
       where:   { checkoutId },
@@ -374,6 +392,22 @@ export class CheckoutService {
   private async requireCheckout(checkoutId: string, storeId: string) {
     const checkout = await this.prisma.checkoutSession.findFirst({
       where:   { id: checkoutId, storeId },
+      include: { addresses: true },
+    });
+    if (!checkout) throw new NotFoundException('Checkout session not found');
+    return checkout;
+  }
+
+  /**
+   * Every public /checkout/:id route goes through this: a checkout id alone
+   * is not authorization. The checkout must belong to the caller's own cart
+   * session — otherwise anyone holding an id could read its contact details
+   * and session id, change its delivery address, or cancel it. A foreign
+   * checkout 404s, the same as a missing one.
+   */
+  private async requireSessionCheckout(checkoutId: string, ctx: CheckoutContext) {
+    const checkout = await this.prisma.checkoutSession.findFirst({
+      where:   { id: checkoutId, storeId: ctx.storeId, sessionId: ctx.sessionId },
       include: { addresses: true },
     });
     if (!checkout) throw new NotFoundException('Checkout session not found');
@@ -428,7 +462,6 @@ export class CheckoutService {
       storeId:                  checkout.storeId,
       cartId:                   checkout.cartId,
       cartVersion:              checkout.cartVersion,
-      sessionId:                checkout.sessionId,
       customerId:               checkout.customerId,
       status:                   checkout.status,
       addresses,

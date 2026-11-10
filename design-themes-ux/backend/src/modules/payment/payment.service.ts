@@ -33,6 +33,13 @@ import {
 } from './dto/payment-service.types';
 import { CaptureResult, PaymentGatewayResult, RefundResult } from './types/payment.types';
 
+/** Terminal states after which a checkout may start a new payment attempt. */
+const RESTARTABLE_AFTER: ReadonlySet<PaymentTxStatus> = new Set([
+  PaymentTxStatus.FAILED,
+  PaymentTxStatus.CANCELLED,
+  PaymentTxStatus.EXPIRED,
+]);
+
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
@@ -50,27 +57,45 @@ export class PaymentService {
   async createPaymentAttempt(input: CreatePaymentAttemptInput): Promise<PaymentTransaction> {
     const idemKey = `payment:create:${input.checkoutSessionId}:${input.idempotencyKey}`;
 
+    let previous: PaymentTransaction | null = null;
     const existing = await this.prisma.idempotencyRecord.findUnique({ where: { key: idemKey } });
     if (existing && existing.expiresAt > new Date()) {
       const tx = await this.prisma.paymentTransaction.findFirst({
         where: { checkoutSessionId: input.checkoutSessionId, storeId: input.storeId },
         orderBy: { createdAt: 'desc' },
       });
-      if (tx) return tx;
+      // Reuse an in-flight or successful attempt (double-submit safety). A
+      // FAILED/CANCELLED/EXPIRED attempt can never be restarted, so the
+      // customer's next "Pay" must open a fresh attempt instead of 400-ing.
+      if (tx && !RESTARTABLE_AFTER.has(tx.status)) return tx;
+      previous = tx;
     }
 
     this.registry.resolve(input.gatewayCode);
 
-    const tx = await this.prisma.paymentTransaction.create({
-      data: {
-        storeId: input.storeId,
-        checkoutSessionId: input.checkoutSessionId,
-        gatewayCode: input.gatewayCode,
-        amountInPaise: input.amountInPaise,
-        currency: input.currency ?? 'INR',
-        paymentMethodId: input.paymentMethodId ?? null,
-      },
-    });
+    const data = {
+      storeId: input.storeId,
+      checkoutSessionId: input.checkoutSessionId,
+      gatewayCode: input.gatewayCode,
+      amountInPaise: input.amountInPaise,
+      currency: input.currency ?? 'INR',
+      paymentMethodId: input.paymentMethodId ?? null,
+    };
+
+    // Same chaining as retryPayment: bump attemptNumber and mark the dead
+    // attempt as superseded, atomically.
+    const tx = previous
+      ? await this.prisma.$transaction(async (txClient) => {
+          const created = await txClient.paymentTransaction.create({
+            data: { ...data, attemptNumber: previous!.attemptNumber + 1 },
+          });
+          await txClient.paymentTransaction.update({
+            where: { id: previous!.id },
+            data: { supersededById: created.id },
+          });
+          return created;
+        })
+      : await this.prisma.paymentTransaction.create({ data });
 
     await this.recordActivity(
       { id: tx.id, storeId: tx.storeId },

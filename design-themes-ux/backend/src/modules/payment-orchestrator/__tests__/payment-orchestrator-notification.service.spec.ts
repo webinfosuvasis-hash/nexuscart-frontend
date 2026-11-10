@@ -2,6 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PaymentOrchestratorNotificationService } from '../payment-orchestrator-notification.service';
 import { PrismaService } from '@/prisma/prisma.service';
+import { EmailService } from '@/shared/email/email.service';
+import { OrderConfirmationEmailService } from '../order-confirmation-email.service';
+import { VendorOrderNotificationService } from '../../vendors/vendor-order-notification.service';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -60,8 +63,16 @@ function buildPrismaMock() {
     order:         { findFirst: jest.fn() },
     customer:      { findFirst: jest.fn() },
     emailTemplate: { findFirst: jest.fn() },
+    // ORDER_CREATED's only write: the order-confirmation dedupe claim.
+    idempotencyRecord: { create: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
 }
+
+// SMTP itself is mocked; OrderConfirmationEmailService has its own spec.
+// Vendor emails have their own spec (vendor-order-notification.service.spec.ts).
+const vendorNotificationsMock = () => ({ fanOut: jest.fn().mockResolvedValue([]) });
+
+const emailMock = () => ({ send: jest.fn().mockResolvedValue({ status: 'not_configured' }), isConfigured: jest.fn() });
 
 function wireHappyPath(
   prisma:       ReturnType<typeof buildPrismaMock>,
@@ -85,8 +96,11 @@ describe('PaymentOrchestratorNotificationService — module wiring', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentOrchestratorNotificationService,
+        OrderConfirmationEmailService,
+        { provide: VendorOrderNotificationService, useValue: vendorNotificationsMock() },
         { provide: PrismaService, useValue: prismaMock },
         { provide: ConfigService, useValue: configMock },
+        { provide: EmailService, useValue: emailMock() },
       ],
     }).compile();
 
@@ -114,8 +128,11 @@ function describeHandler(
       const module: TestingModule = await Test.createTestingModule({
         providers: [
           PaymentOrchestratorNotificationService,
+          OrderConfirmationEmailService,
+          { provide: VendorOrderNotificationService, useValue: vendorNotificationsMock() },
           { provide: PrismaService, useValue: prisma },
           { provide: ConfigService, useValue: { get: jest.fn() } },
+          { provide: EmailService, useValue: emailMock() },
         ],
       }).compile();
       service = module.get(PaymentOrchestratorNotificationService);
@@ -244,8 +261,11 @@ describe('PaymentOrchestratorNotificationService — regression', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentOrchestratorNotificationService,
+        OrderConfirmationEmailService,
+        { provide: VendorOrderNotificationService, useValue: vendorNotificationsMock() },
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: jest.fn() } },
+        { provide: EmailService, useValue: emailMock() },
       ],
     }).compile();
     service = module.get(PaymentOrchestratorNotificationService);
@@ -380,12 +400,14 @@ describe('PaymentOrchestratorNotificationService — regression', () => {
     );
   });
 
-  // ── REG-PO-10: no DB writes in any handler ────────────────────────────────
+  // ── REG-PO-10: no DB writes in the log-only handlers ──────────────────────
+  // (ORDER_CREATED writes exactly one row — its dedupe claim; see
+  // order-confirmation-email.service.spec.ts.)
 
-  it('REG-PO-10: no writable Prisma calls are made during any handler (read-only contract)', async () => {
-    wireHappyPath(prisma, 'ORDER_CREATED');
+  it('REG-PO-10: no writable Prisma calls are made by the log-only handlers (read-only contract)', async () => {
+    wireHappyPath(prisma, 'PAYMENT_CAPTURED');
 
-    await service.handleOrderCreated(makePayload());
+    await service.handlePaymentCaptured(makePayload());
 
     // The mock has only findFirst — if the service tried to call .create/.update
     // it would throw and the test would fail automatically.
@@ -393,5 +415,73 @@ describe('PaymentOrchestratorNotificationService — regression', () => {
     expect((prisma.order         as any).update).toBeUndefined();
     expect((prisma.customer      as any).upsert).toBeUndefined();
     expect((prisma.emailTemplate as any).delete).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ORDER_CREATED fan-out: customer confirmation + vendor notifications.
+// COD, verified webhook capture and payment recovery all reach
+// completePayment, which persists this one canonical event — so this handler is
+// the single trigger point for every order path.
+// ---------------------------------------------------------------------------
+
+describe('PaymentOrchestratorNotificationService — ORDER_CREATED vendor notifications', () => {
+  function build() {
+    const orderConfirmation   = { send: jest.fn().mockResolvedValue('accepted') };
+    const vendorNotifications = { fanOut: jest.fn().mockResolvedValue([{ vendorId: 'v1', outcome: 'queued' }]) };
+    const service = new PaymentOrchestratorNotificationService(
+      buildPrismaMock() as any, { get: jest.fn() } as any, orderConfirmation as any, vendorNotifications as any,
+    );
+    for (const level of ['log', 'warn', 'error'] as const) {
+      jest.spyOn((service as any).logger, level).mockImplementation(() => undefined);
+    }
+    return { service, orderConfirmation, vendorNotifications };
+  }
+
+  it('sends the customer confirmation and the vendor notifications for the same order', async () => {
+    const { service, orderConfirmation, vendorNotifications } = build();
+
+    await service.handleOrderCreated(makePayload());
+
+    expect(orderConfirmation.send).toHaveBeenCalledWith(STORE_ID, ORDER_ID);
+    expect(vendorNotifications.fanOut).toHaveBeenCalledWith(STORE_ID, ORDER_ID);
+  });
+
+  it('a customer-email failure does not stop vendor notifications', async () => {
+    const { service, orderConfirmation, vendorNotifications } = build();
+    orderConfirmation.send.mockRejectedValue(new Error('db down'));
+
+    await expect(service.handleOrderCreated(makePayload())).resolves.toBeUndefined();
+    expect(vendorNotifications.fanOut).toHaveBeenCalledWith(STORE_ID, ORDER_ID);
+  });
+
+  it('a failure to queue vendor emails is rethrown so the outbox retries ORDER_CREATED — after the customer email ran', async () => {
+    const { service, orderConfirmation, vendorNotifications } = build();
+    vendorNotifications.fanOut.mockRejectedValue(new Error('deadlock'));
+
+    await expect(service.handleOrderCreated(makePayload())).rejects.toThrow('deadlock');
+    expect(orderConfirmation.send).toHaveBeenCalledTimes(1);
+    expect(orderConfirmation.send.mock.invocationCallOrder[0])
+      .toBeLessThan(vendorNotifications.fanOut.mock.invocationCallOrder[0]);
+  });
+
+  it('the retried ORDER_CREATED does not email the customer twice (confirmation is deduped by its own claim)', async () => {
+    const { service, orderConfirmation, vendorNotifications } = build();
+    vendorNotifications.fanOut.mockRejectedValueOnce(new Error('deadlock'));
+    orderConfirmation.send.mockResolvedValueOnce('accepted').mockResolvedValueOnce('duplicate');
+
+    await expect(service.handleOrderCreated(makePayload())).rejects.toThrow();
+    await expect(service.handleOrderCreated(makePayload())).resolves.toBeUndefined();
+    expect(await orderConfirmation.send.mock.results[1].value).toBe('duplicate');
+  });
+
+  it('only ORDER_CREATED triggers vendor emails — the log-only handlers never do', async () => {
+    const { service, vendorNotifications } = build();
+
+    await service.handlePaymentCaptured(makePayload());
+    await service.handleCheckoutCompleted(makePayload());
+    await service.handleInventoryCommitted(makePayload());
+
+    expect(vendorNotifications.fanOut).not.toHaveBeenCalled();
   });
 });

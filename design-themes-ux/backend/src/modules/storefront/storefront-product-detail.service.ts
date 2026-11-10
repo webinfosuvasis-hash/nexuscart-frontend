@@ -4,6 +4,7 @@ import {
   Breadcrumb,
   buildBreadcrumbs, calcDiscountPercent, parseJsonArray,
 } from '@/common/catalog/product-query.util';
+import { sanitizeProductDescription } from '@/common/catalog/product-html-sanitizer';
 import { StorefrontProduct, StorefrontProductsService } from './storefront-products.service';
 
 export interface ProductVariantDto {
@@ -111,7 +112,7 @@ export class StorefrontProductDetailService {
       name:             product.name,
       slug:             product.slug,
       sku:              product.sku,
-      description:      product.description,
+      description:      sanitizeProductDescription(product.description),
       shortDescription: product.shortDescription,
       price:            Number(product.price),
       mrp:              product.comparePrice ? Number(product.comparePrice) : Number(product.price),

@@ -40,7 +40,7 @@ const DEFAULT: TryAtHomeConfig = {
     overlayStyle: 'dark',
     headline: 'Unsure About\nWhat Design to Pick?',
     ctaText: 'BOOK A TRIAL AT HOME',
-    ctaUrl: '/try-at-home',
+    ctaUrl: '/pages/contact-us',
   },
   videoCall: {
     backgroundImage:
@@ -48,7 +48,7 @@ const DEFAULT: TryAtHomeConfig = {
     overlayStyle: 'purple',
     headline: 'View Designs on\nLive Video Call',
     ctaText: 'SCHEDULE A VIDEO CALL',
-    ctaUrl: '/video-call',
+    ctaUrl: '/pages/contact-us',
   },
 };
 

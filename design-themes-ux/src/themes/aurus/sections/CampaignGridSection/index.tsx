@@ -10,6 +10,7 @@
 import React from 'react';
 import { mergeWithDefaults, safeParseJson } from '../shared/pipeline';
 import { validResult } from '../shared/pipeline';
+import { readableTextOn } from '../shared/contrast';
 import { UI, SERIF } from '@/themes/aurus/constants';
 import type { SectionRegistryEntry, SectionComponentProps, DataResolver, ValidationResult } from '@/themes/registry/types';
 import type { StorefrontProductsResponse } from '@/lib/storefrontApi';
@@ -55,7 +56,7 @@ export interface CampaignGridData {
 const DEFAULT: CampaignGridConfig = {
   leftPanel:   { backgroundColor: '#F2899D', brandLabel1: 'SHAYA', brandLabel2: 'by AURUS', craftNote: 'Crafted in 925 Silver', saleHeadline: 'Big Sale Alert', offerText: 'Upto 50% Off', offerSubtitle: 'on Silver Jewellery', disclaimer: 'TCA' },
   topRight:    { gradientFrom: '#6DC5B0', gradientTo: '#2D8B7A', brandLabel: 'SHAYA DIAMONDS', headline: 'FLAT 10% OFF', headlineSuperscript: '*', subtitle: 'on MRP of all Designs', bodyNote: 'Natural Diamonds in 925 Silver from ₹5000', disclaimer: '*TCA' },
-  bottomRight: { backgroundColor: '#F0E6D4', subLabel: 'More Earrings, More Fun!', headlinePart1: 'LATEST', headlinePart2: 'Designs', ctaText: 'SHOP NOW ▶', ctaUrl: '/jewellery/new-arrivals' },
+  bottomRight: { backgroundColor: '#F0E6D4', subLabel: 'More Earrings, More Fun!', headlinePart1: 'LATEST', headlinePart2: 'Designs', ctaText: 'SHOP NOW ▶', ctaUrl: '/search?q=new%20arrivals' },
 };
 
 function parseConfig(raw: unknown): CampaignGridConfig {
@@ -115,8 +116,9 @@ const CampaignGridSection: React.FC<SectionComponentProps<CampaignGridConfig, Ca
       <div className="row-span-2 relative overflow-hidden rounded-xl flex flex-col justify-between p-5" style={{ background: l.backgroundColor }}>
         <div className="flex items-start justify-between relative z-10 flex-shrink-0">
           <div>
-            <p className="text-white text-[17px] font-black tracking-[0.05em]" style={UI}>{l.brandLabel1}</p>
-            <p className="text-white/90 text-[12px] font-medium tracking-wide" style={UI}>{l.brandLabel2}</p>
+            {/* Brand labels follow the configured panel colour (white vanished on a pale panel). */}
+            <p className="text-[17px] font-black tracking-[0.05em]" style={{ ...UI, color: readableTextOn(l.backgroundColor) }}>{l.brandLabel1}</p>
+            <p className="text-[12px] font-medium tracking-wide opacity-90" style={{ ...UI, color: readableTextOn(l.backgroundColor) }}>{l.brandLabel2}</p>
           </div>
           <p className="text-gray-800 text-[12px] font-medium text-right leading-snug" style={UI}>{l.craftNote.split(' in ').length > 1 ? <>Crafted in<br /><strong>{l.craftNote.split(' in ')[1]}</strong></> : l.craftNote}</p>
         </div>
@@ -132,7 +134,7 @@ const CampaignGridSection: React.FC<SectionComponentProps<CampaignGridConfig, Ca
           <p className="text-gray-900 text-[40px] font-black leading-none mt-0.5" style={UI}>{l.offerText}</p>
           <p className="text-gray-800 text-[13px] mt-1" style={UI}>{l.offerSubtitle}</p>
         </div>
-        <p className="absolute bottom-3 left-5 text-gray-700/60 text-[10px] z-10" style={UI}>{l.disclaimer}</p>
+        <p className="absolute bottom-3 left-5 text-gray-600 text-[10px] z-10" style={UI}>{l.disclaimer}</p>
       </div>
 
       {/* Top-right — teal diamond panel */}

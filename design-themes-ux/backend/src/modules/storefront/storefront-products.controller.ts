@@ -117,6 +117,7 @@ export class StorefrontProductsController {
       attr:           this.parseAttrParam(query),
       badge:          parseCsv(query.badge),
       inStock:        query.inStock === 'true',
+      discountMin:    query.discountMin ? Number(query.discountMin) : undefined,
       rating:         query.rating ? Number(query.rating) : undefined,
     });
   }

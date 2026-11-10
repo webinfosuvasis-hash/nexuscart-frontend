@@ -1,10 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import {
-  ProductListingFilters, SortOption, Breadcrumb,
+  ProductListingFilters, SortOption, Breadcrumb, ProductWhereContext,
   buildProductWhere, buildOrderBy, calcDiscountPercent, needsComputedPass,
-  parseJsonArray, buildBreadcrumbs,
+  parseJsonArray,
 } from '@/common/catalog/product-query.util';
+import { buildBreadcrumbTrailFromTree, CategoryTreeNode } from '@/common/catalog/category-tree.util';
+import { PerfTimer, PerfStep } from '@/common/perf-timer.util';
+import { CacheService } from '@/shared/cache/cache.service';
 
 /**
  * StorefrontProductsService — public, read-only product and category data.
@@ -58,6 +61,8 @@ export interface ProductListingResponse {
   breadcrumbs: Breadcrumb[];
   category:    { id: string; name: string; slug: string; description: string | null; seo: unknown } | null;
   sortOptions: { value: SortOption; label: string }[];
+  /** Perf breakdown, present only when ENABLE_PERF_DEBUG=true — never populated in normal operation. */
+  _debug?: { totalMs: number; pingMs: number; steps: PerfStep[] };
 }
 
 // ─── Query parameter types ────────────────────────────────────────────────────
@@ -80,7 +85,13 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 
 @Injectable()
 export class StorefrontProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(StorefrontProductsService.name);
+  private readonly perfDebug = process.env.ENABLE_PERF_DEBUG === 'true';
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache:  CacheService,
+  ) {}
 
   /**
    * Fetch products for storefront rendering — homepage sections (minimal
@@ -91,7 +102,17 @@ export class StorefrontProductsService {
     const page  = Math.max(1, params.page ?? 1);
     const limit = Math.min(params.limit ?? 12, 60);
 
-    const where = await buildProductWhere(this.prisma, storeId, params);
+    const timer = this.perfDebug ? new PerfTimer() : undefined;
+    // Baseline round-trip cost (network + connection handling) for THIS request,
+    // measured via a trivial query — lets every other step's duration be read as
+    // "network floor + N extra round trips" instead of an opaque wall-clock number.
+    // Only ever runs when perf debug is explicitly enabled (adds a real extra round trip).
+    const pingMs = timer
+      ? await timer.time('_pingBaseline', () => this.prisma.$queryRaw`SELECT 1`).then(() => timer.summary().steps[0].ms)
+      : 0;
+
+    const ctx: ProductWhereContext = { timer, cache: this.cache };
+    const where = await buildProductWhere(this.prisma, storeId, params, ctx);
 
     const emptyResponse: ProductListingResponse = {
       products: [],
@@ -115,10 +136,11 @@ export class StorefrontProductsService {
 
     if (needsComputedPass(params)) {
       // Phase 1: narrow candidates via indexed where clause (no pagination yet)
-      const candidates = await this.prisma.product.findMany({ where, select, orderBy });
+      const findCandidates = () => this.prisma.product.findMany({ where, select, orderBy });
+      const candidates = timer ? await timer.time('productQuery', findCandidates) : await findCandidates();
 
       // Phase 2: compute discount + rating only across the already-narrowed candidate set
-      const ratingsByProduct = await this.getAverageRatings(candidates.map((p) => p.id));
+      const ratingsByProduct = await this.getAverageRatings(candidates.map((p) => p.id), timer);
       let enriched = candidates.map((p) => ({
         ...p,
         __discount: calcDiscountPercent(Number(p.price), p.comparePrice ? Number(p.comparePrice) : null),
@@ -135,11 +157,17 @@ export class StorefrontProductsService {
       total = enriched.length;
       raw = enriched.slice((page - 1) * limit, page * limit);
     } else {
+      // Both queries are kicked off in the same tick and run concurrently on
+      // separate connections — timing each individually (rather than only the
+      // combined Promise.all) still gives an accurate per-query duration since
+      // each timer starts synchronously before its own await.
+      const findMany = () => this.prisma.product.findMany({ where, select, orderBy, skip: (page - 1) * limit, take: limit });
+      const count    = () => this.prisma.product.count({ where });
       [raw, total] = await Promise.all([
-        this.prisma.product.findMany({ where, select, orderBy, skip: (page - 1) * limit, take: limit }),
-        this.prisma.product.count({ where }),
+        timer ? timer.time('productQuery', findMany) : findMany(),
+        timer ? timer.time('countQuery', count) : count(),
       ]);
-      const ratingsByProduct = await this.getAverageRatings(raw.map((p) => p.id));
+      const ratingsByProduct = await this.getAverageRatings(raw.map((p) => p.id), timer);
       raw = raw.map((p) => ({
         ...p,
         __discount: calcDiscountPercent(Number(p.price), p.comparePrice ? Number(p.comparePrice) : null),
@@ -148,7 +176,7 @@ export class StorefrontProductsService {
       }));
     }
 
-    const products: StorefrontProduct[] = raw.map((p) => {
+    const serialize = () => raw.map((p) => {
       const images = parseJsonArray(p.images);
       const badges = parseJsonArray(p.badges ?? null);
       return {
@@ -169,24 +197,75 @@ export class StorefrontProductsService {
         category: p.category ?? null,
       };
     });
+    const t0 = timer ? performance.now() : 0;
+    const products: StorefrontProduct[] = serialize();
+    if (timer) timer.mark('serialization', performance.now() - t0);
 
-    const category = where.categoryId
-      ? await this.prisma.category.findUnique({
-          where: { id: where.categoryId as string },
-          select: { id: true, name: true, slug: true, description: true, metaTitle: true, metaDescription: true, parentId: true },
-        })
-      : null;
+    // `buildProductWhere` already resolved the category (and its whole store
+    // tree) while building the `where` clause above — reused here via `ctx`
+    // rather than re-querying for the same row a second time.
+    const category = ctx.resolvedCategory ?? null;
+
+    const breadcrumbs = await this.buildListingBreadcrumbs(storeId, category, ctx.tree, params);
+
+    if (timer) {
+      const { totalMs, steps } = timer.summary();
+      this.logger.log(`getProducts perf: total=${totalMs}ms ping=${pingMs}ms steps=${JSON.stringify(steps)}`);
+    }
 
     return {
       products,
       pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
-      breadcrumbs: category ? await buildBreadcrumbs(this.prisma, category) : [{ label: 'Home', url: '/' }],
+      breadcrumbs,
       category: category
         ? { id: category.id, name: category.name, slug: category.slug, description: category.description,
             seo: { title: category.metaTitle, description: category.metaDescription } }
         : null,
       sortOptions: SORT_OPTIONS,
+      ...(timer ? { _debug: { ...timer.summary(), pingMs } } : {}),
     };
+  }
+
+  /**
+   * Category listings already get a real trail from `buildBreadcrumbs()`.
+   * Brand/Collection/Search listings have no category, so they used to fall
+   * back to a bare `[Home]` crumb even though the page's own H1 correctly
+   * shows the brand/collection/search term — this fills in that gap without
+   * inventing new intermediate routes (no `/brands` or `/collections` index
+   * page exists in the router, so the trail stays two levels: Home > entity).
+   */
+  private async buildListingBreadcrumbs(
+    storeId: string,
+    category: CategoryTreeNode | null,
+    tree: CategoryTreeNode[] | undefined,
+    params: StorefrontProductParams,
+  ): Promise<Breadcrumb[]> {
+    // `tree` is always populated alongside `category` (both come from the same
+    // buildProductWhere call), so the parent-chain walk is pure in-memory —
+    // no DB round trip per ancestor level.
+    if (category) return buildBreadcrumbTrailFromTree(tree ?? [], category);
+
+    if (params.brandSlug) {
+      const brand = await this.prisma.brand.findFirst({
+        where: { storeId, slug: params.brandSlug },
+        select: { name: true },
+      });
+      return [{ label: 'Home', url: '/' }, { label: brand?.name ?? params.brandSlug, url: `/brand/${params.brandSlug}` }];
+    }
+
+    if (params.collectionSlug) {
+      const collection = await this.prisma.collection.findFirst({
+        where: { storeId, slug: params.collectionSlug },
+        select: { name: true },
+      });
+      return [{ label: 'Home', url: '/' }, { label: collection?.name ?? params.collectionSlug, url: `/collection/${params.collectionSlug}` }];
+    }
+
+    if (params.q) {
+      return [{ label: 'Home', url: '/' }, { label: `"${params.q}"`, url: `/search?q=${encodeURIComponent(params.q)}` }];
+    }
+
+    return [{ label: 'Home', url: '/' }];
   }
 
   /**
@@ -241,14 +320,15 @@ export class StorefrontProductsService {
 
   // ─── Private helpers ────────────────────────────────────────────────────────
 
-  private async getAverageRatings(productIds: string[]): Promise<Map<string, { avg: number; count: number }>> {
+  private async getAverageRatings(productIds: string[], timer?: PerfTimer): Promise<Map<string, { avg: number; count: number }>> {
     if (productIds.length === 0) return new Map();
-    const grouped = await this.prisma.productReview.groupBy({
+    const groupRatings = () => this.prisma.productReview.groupBy({
       by: ['productId'],
       where: { productId: { in: productIds }, isVisible: true },
       _avg: { rating: true },
       _count: { _all: true },
     });
+    const grouped = timer ? await timer.time('ratings', groupRatings) : await groupRatings();
     const map = new Map<string, { avg: number; count: number }>();
     for (const g of grouped) map.set(g.productId, { avg: g._avg.rating ?? 0, count: g._count._all });
     return map;

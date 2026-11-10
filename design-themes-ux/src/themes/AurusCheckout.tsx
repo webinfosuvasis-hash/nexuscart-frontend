@@ -1,26 +1,36 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { inr } from '@/context/StoreContext';
-import { useCart, useApplyPromotion, useRemovePromotion } from '@/hooks/useCart';
+import { useCart, useApplyPromotion, useRemovePromotion, CART_QUERY_KEY } from '@/hooks/useCart';
 import { useAuth } from '@/context/CustomerAuthContext';
 import { useAddresses, useCreateAddress } from '@/hooks/useCustomerAddresses';
 import {
-  useStartCheckout, useUpdateCheckoutAddress, useUpdateCheckoutShipping, useValidateCheckout,
+  useStartCheckout, useUpdateCheckoutAddress, useUpdateCheckoutShipping, useValidateCheckout, useCancelCheckout,
   checkoutErrorMessage,
 } from '@/hooks/useCheckout';
 import { useInitiatePayment, useRetryPayment } from '@/hooks/useCustomerPayment';
-import { CheckoutSession, AddressInput } from '@/lib/checkoutApi';
+import { CheckoutSession, AddressInput, CheckoutAddress, CheckoutShippingMethod } from '@/lib/checkoutApi';
 import { CustomerAddress } from '@/lib/customerAddressApi';
 import { normalizeIndiaStateCode } from '@/lib/indiaStateCodes';
+import { resetCheckoutPrompt } from '@/lib/checkoutPrompt';
+import GuestCheckoutPrompt from '@/components/storefront/checkout/GuestCheckoutPrompt';
+import PaymentSection from '@/components/storefront/checkout/PaymentSection';
+import CheckoutCta from '@/components/storefront/checkout/CheckoutCta';
+import OrderSummary from '@/components/storefront/checkout/OrderSummary';
 import {
-  ArrowLeft, Check, ChevronRight, MapPin, CreditCard,
-  Truck, Lock, ShoppingBag, Loader2, Tag, X, AlertTriangle, RefreshCw,
+  BTN_PRIMARY, BTN_SECONDARY, C, CARD, CenterState, CheckoutShell, EASE, FOCUS, Field, HEADER_OFFSET, LINK_BTN, LineItem,
+  Disclosure, PriceRow, RadioDot, SERIF, SectionCard, SectionStatus, optionCard, optionIcon,
+} from '@/components/storefront/checkout/checkoutUi';
+import { DEFAULT_PAYMENT_METHOD, GatewayCode, PaymentMethodId, getPaymentMethod } from '@/lib/paymentMethods';
+import {
+  AlertTriangle, Check, ChevronDown, Clock, Loader2, Mail, MapPin, Pencil, Phone, ShieldCheck, ShoppingBag, Tag, Truck,
+  UserRound, X, Zap,
 } from 'lucide-react';
 
-const UI    = { fontFamily: 'system-ui, -apple-system, sans-serif' };
-const SERIF = { fontFamily: "'Cormorant Garamond', Georgia, serif" };
-
 type Step = 'address' | 'shipping' | 'review' | 'payment';
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function stepFromCheckout(checkout: CheckoutSession | null): Step {
   if (!checkout) return 'address';
@@ -30,180 +40,198 @@ function stepFromCheckout(checkout: CheckoutSession | null): Step {
   return 'review';
 }
 
+/** Progress-bar index: 0 Bag · 1 Address · 2 Shipping · 3 Review & Pay. */
+const STEP_INDEX: Record<Step, number> = { address: 1, shipping: 2, review: 3, payment: 3 };
+
+/* Layout shared by the bag-review and checkout screens: content left, summary
+ * right (sticky) on desktop; one column below lg with the summary after the
+ * checkout content and the CTA docked to the bottom of the viewport. */
+const PAGE_GRID =
+  'max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 lg:pt-8 pb-36 lg:pb-16 grid grid-cols-1 ' +
+  'lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] gap-4 lg:gap-8 items-start';
+const ASIDE = `lg:sticky ${HEADER_OFFSET} space-y-4 min-w-0`;
+const CTA_DOCK =
+  'fixed inset-x-0 bottom-0 z-30 bg-white border-t border-[#E8E3DB] px-4 sm:px-6 pt-4 pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_-12px_rgba(28,25,23,0.18)] ' +
+  'lg:static lg:z-auto lg:bg-transparent lg:border-0 lg:p-0 lg:shadow-none';
+
+const SecureNote: React.FC = () => (
+  <p className="hidden lg:flex items-center justify-center gap-2 text-[12px] text-[#5F5953]">
+    <ShieldCheck className="w-4 h-4 text-[#0F766E]" aria-hidden /> 100% Secure &amp; Encrypted Payment
+  </p>
+);
+
 /**
  * Review Your Bag — the only point in this flow where a coupon can be
- * applied or removed. Once `POST /checkout/start` runs, the checkout engine
- * hard-blocks the session the moment `cart.version` no longer matches the
- * version it was started with (CART_CHANGED — a permanent blocker with no
- * "resync" endpoint available), so applying a coupon *after* checkout has
- * started would silently and permanently break that checkout. Discovered
- * live while building this integration — not a documented constraint
- * anywhere, just how the existing (unmodified) checkout engine behaves.
+ * applied or removed. Once `POST /checkout/start` runs, the cart is locked and
+ * the checkout engine hard-blocks the session the moment `cart.version` no
+ * longer matches the version it was started with (CART_CHANGED — no "resync"
+ * endpoint exists), so a coupon change after start goes through a real
+ * checkout cancel (which unlocks the cart) and back to this step.
  */
-const BagReviewSection: React.FC<{ onProceed: () => void; isStartingCheckout: boolean }> = ({ onProceed, isStartingCheckout }) => {
+const BagReviewSection: React.FC<{
+  onProceed: () => void;
+  isStartingCheckout: boolean;
+  openCoupon?: boolean;
+}> = ({ onProceed, isStartingCheckout, openCoupon }) => {
   const navigate = useNavigate();
   const { data: cart, isLoading } = useCart();
   const applyPromotion = useApplyPromotion();
   const removePromotion = useRemovePromotion();
   const [couponCode, setCouponCode] = useState('');
+  const [couponOpen, setCouponOpen] = useState(!!openCoupon);
+  const couponInputId = useId();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F5F3FA]" style={UI}>
-        <Loader2 className="w-10 h-10 animate-spin text-purple-600" />
-      </div>
-    );
+    return <CenterState><Loader2 className="w-8 h-8 animate-spin motion-reduce:animate-none text-[#6D28D9]" aria-label="Loading your bag" /></CenterState>;
   }
 
   const items = cart?.items ?? [];
-  if (items.length === 0) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F3FA]" style={UI}>
-        <ShoppingBag className="w-14 h-14 text-purple-200 mb-4" />
-        <p className="text-[18px] font-semibold text-gray-700 mb-4">Your cart is empty</p>
-        <Link to="/jewellery/rings" className="bg-purple-700 text-white px-8 py-2.5 rounded-full text-[13px] font-bold hover:bg-purple-800 transition-colors">
-          Browse Collection
-        </Link>
-      </div>
-    );
-  }
+  if (items.length === 0) return <EmptyBag />;
 
   const totals = cart!.totals;
+  const savings = totals.discount + totals.promotionDiscount;
+
+  const applyCoupon = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = couponCode.trim().toUpperCase();
+    if (!code || applyPromotion.isPending) return;
+    applyPromotion.mutate(code, { onSuccess: () => setCouponCode('') });
+  };
+
+  const couponPanel = (
+    <Disclosure
+      open={couponOpen}
+      onToggle={() => setCouponOpen((o) => !o)}
+      icon={<Tag className="w-4 h-4 text-[#6D28D9] flex-shrink-0" aria-hidden />}
+      summary={cart?.couponCode
+        ? <>Coupon applied: <span className="font-semibold text-[#0F766E]">{cart.couponCode}</span></>
+        : 'Have a coupon code?'}
+    >
+      {cart?.couponCode ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-[#F0FDF9] border border-[#B7E4DA] px-4 py-2">
+          <span className="text-[13px] text-[#0F766E]">
+            <span className="font-semibold">{cart.couponCode}</span>
+            {totals.promotionDiscount > 0 && <> · you save {inr(totals.promotionDiscount)}</>}
+          </span>
+          <button
+            type="button"
+            onClick={() => removePromotion.mutate(cart.couponCode!)}
+            disabled={removePromotion.isPending}
+            className={`w-10 h-10 -mr-2 flex items-center justify-center rounded-lg text-[#0F766E] hover:bg-white hover:text-[#B42318] disabled:opacity-50 ${FOCUS}`}
+            aria-label="Remove coupon"
+          >
+            {removePromotion.isPending ? <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" /> : <X className="w-4 h-4" />}
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={applyCoupon} className="flex gap-2">
+          <label htmlFor={couponInputId} className="sr-only">Coupon code</label>
+          <input
+            id={couponInputId}
+            type="text"
+            value={couponCode}
+            onChange={(e) => setCouponCode(e.target.value)}
+            placeholder="Enter coupon code"
+            autoComplete="off"
+            autoCapitalize="characters"
+            className="flex-1 min-w-0 h-12 px-4 rounded-lg border border-[#D6CFC4] bg-white text-[14px] uppercase tracking-wide placeholder:normal-case placeholder:tracking-normal outline-none focus:border-[#6D28D9] focus:ring-4 focus:ring-[#6D28D9]/15"
+          />
+          <button type="submit" disabled={applyPromotion.isPending || !couponCode.trim()} className={`${BTN_SECONDARY} h-12 px-6 text-[13px] font-semibold`}>
+            {applyPromotion.isPending ? 'Applying…' : 'Apply'}
+          </button>
+        </form>
+      )}
+    </Disclosure>
+  );
 
   return (
-    <div className="min-h-screen bg-[#F5F3FA]" style={UI}>
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-[1280px] mx-auto px-6 h-[54px] flex items-center gap-4">
-          <button onClick={() => navigate('/cart')} className="text-gray-600 hover:text-purple-700 transition-colors flex items-center gap-1.5 text-[13px]">
-            <ArrowLeft className="w-4 h-4" /> Back to Bag
-          </button>
-          <div className="flex-1 text-center">
-            <span className="text-[18px] font-light text-gray-900" style={SERIF}>Review Your Bag</span>
+    <CheckoutShell currentStep={0} onBackToBag={() => navigate('/cart')}>
+      <main className={PAGE_GRID}>
+        <section aria-labelledby="bag-heading" className={CARD}>
+          <div className="flex items-baseline justify-between gap-4 px-4 sm:px-6 pt-6 pb-4">
+            <h1 id="bag-heading" className="text-[28px] leading-tight font-semibold" style={SERIF}>Review Your Bag</h1>
+            <span className="text-[13px] text-[#5F5953]">{cart!.itemCount} item{cart!.itemCount === 1 ? '' : 's'}</span>
           </div>
-          <div className="hidden sm:flex items-center gap-1.5 text-[11px]" style={UI}>
-            <span className="text-purple-700 font-bold">① Review</span>
-            <ChevronRight className="w-3 h-3 text-gray-300" />
-            <span className="text-gray-400">② Address</span>
-            <ChevronRight className="w-3 h-3 text-gray-300" />
-            <span className="text-gray-400">③ Shipping</span>
-            <ChevronRight className="w-3 h-3 text-gray-300" />
-            <span className="text-gray-400">④ Review &amp; Pay</span>
-          </div>
-        </div>
-      </header>
+          <ul className="px-4 sm:px-6 pb-6 divide-y divide-[#F1EDE7]">
+            {items.map((item) => <LineItem key={item.id} item={item} formatPrice={inr} />)}
+          </ul>
+        </section>
 
-      <div className="max-w-[1280px] mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-        <div className="space-y-5">
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="text-[15px] font-bold text-gray-900 mb-4">Your Items</h2>
-            <div className="space-y-3">
-              {items.map((item) => (
-                <div key={item.id} className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
-                    <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-medium text-gray-800 line-clamp-1">{item.name}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">Qty: {item.quantity}</p>
-                  </div>
-                  <span className="text-[13px] font-bold text-gray-900 flex-shrink-0">{inr(item.lineTotal)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Tag className="w-4.5 h-4.5 text-purple-600" style={{ width: 18, height: 18 }} />
-              <h2 className="text-[15px] font-bold text-gray-900">Have a coupon?</h2>
-            </div>
-            {cart?.couponCode ? (
-              <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-3">
-                <p className="text-[13px] font-bold text-green-700">{cart.couponCode}</p>
-                <button
-                  onClick={() => removePromotion.mutate(cart.couponCode!)}
-                  disabled={removePromotion.isPending}
-                  className="text-green-700 hover:text-red-600 transition-colors disabled:opacity-50"
-                  aria-label="Remove coupon"
-                >
-                  {removePromotion.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                </button>
+        <aside className={ASIDE} aria-label="Bag total">
+          <section className={`${CARD} p-4 sm:p-6 space-y-4`}>
+            <h2 className="text-[24px] font-semibold leading-tight" style={SERIF}>Bag Total</h2>
+            {couponPanel}
+            <dl className="space-y-3 pt-4 border-t border-[#E8E3DB]">
+              <PriceRow label="Subtotal" value={inr(totals.subtotal)} />
+              {totals.discount > 0 && <PriceRow label="Discount" value={`− ${inr(totals.discount)}`} tone="success" />}
+              {totals.promotionDiscount > 0 && <PriceRow label="Coupon Discount" value={`− ${inr(totals.promotionDiscount)}`} tone="success" />}
+              <PriceRow label="Shipping & tax" value="Calculated next" tone="muted" />
+            </dl>
+            <div className="rounded-xl bg-[#F6F2FF] border border-[#E4DAFE] px-4 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-[12px] sm:text-[13px] font-semibold uppercase tracking-[0.12em] whitespace-nowrap text-[#4C1D95]">Estimated Total</p>
+                <p className="text-[26px] sm:text-[30px] leading-none font-semibold tabular-nums whitespace-nowrap" style={SERIF}>{inr(totals.grandTotal)}</p>
               </div>
-            ) : (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={couponCode}
-                  onChange={(e) => setCouponCode(e.target.value)}
-                  placeholder="Enter coupon code"
-                  className="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 text-[13px] outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
-                />
-                <button
-                  onClick={() => applyPromotion.mutate(couponCode.trim().toUpperCase())}
-                  disabled={applyPromotion.isPending || !couponCode.trim()}
-                  className="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 disabled:opacity-50 text-white text-[13px] font-bold rounded-lg transition-colors"
-                >
-                  {applyPromotion.isPending ? 'Applying…' : 'Apply'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl shadow-sm px-5 py-4 space-y-2.5">
-            <PriceRow label="Subtotal" value={inr(totals.subtotal)} />
-            {totals.discount > 0 && <PriceRow label="Discount" value={`− ${inr(totals.discount)}`} valueColor="#00897B" />}
-            {totals.promotionDiscount > 0 && <PriceRow label="Coupon Discount" value={`− ${inr(totals.promotionDiscount)}`} valueColor="#00897B" />}
-            <div className="h-px bg-gray-200 my-1" />
-            <div className="flex items-center justify-between">
-              <span className="text-[15px] font-bold text-gray-900">Estimated Total</span>
-              <span className="text-[16px] font-black text-gray-900">{inr(totals.grandTotal)}</span>
+              {savings > 0 && <p className="mt-2 text-[12px] font-medium text-[#0F766E]">You save {inr(savings)} on this order</p>}
             </div>
-            <p className="text-[11px] text-gray-400">Shipping &amp; tax calculated at the next step</p>
+          </section>
+          <div className={CTA_DOCK}>
+            <button
+              type="button"
+              onClick={onProceed}
+              disabled={isStartingCheckout}
+              aria-busy={isStartingCheckout || undefined}
+              className={`${BTN_PRIMARY} w-full h-14 text-[14px]`}
+            >
+              {isStartingCheckout && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />}
+              {isStartingCheckout ? 'Starting Checkout…' : 'Proceed to Checkout'}
+            </button>
           </div>
-
-          <button
-            onClick={onProceed}
-            disabled={isStartingCheckout}
-            className="w-full py-4 text-white text-[14px] font-black tracking-[0.12em] uppercase rounded-xl transition-all disabled:opacity-60 hover:opacity-90 active:scale-[0.98]"
-            style={{ background: 'linear-gradient(90deg,#9333EA,#7B22F9)', boxShadow: '0 4px 14px rgba(124,58,237,0.4)' }}
-          >
-            {isStartingCheckout ? 'Starting Checkout…' : 'Proceed to Checkout'}
-          </button>
-        </div>
-      </div>
-    </div>
+          <SecureNote />
+        </aside>
+      </main>
+    </CheckoutShell>
   );
 };
 
+const EmptyBag: React.FC = () => (
+  <CenterState>
+    <ShoppingBag className="w-12 h-12 text-[#C4B5FD] mb-4" aria-hidden />
+    <p className="text-[28px] font-semibold mb-2" style={SERIF}>Your bag is empty</p>
+    <p className="text-[14px] text-[#5F5953] mb-6">Discover pieces you’ll love.</p>
+    <Link to="/jewellery" className={`${BTN_PRIMARY} h-12 px-8 text-[13px]`}>Browse Collection</Link>
+  </CenterState>
+);
+
 /* ─── Order success overlay ──────────────────────────────────────── */
-const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => void }> = ({ orderId, total, onClose }) => (
-  <div className="fixed inset-0 z-[200] flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
-    <div className="bg-white rounded-2xl shadow-2xl max-w-[420px] w-full p-8 text-center" style={UI}>
-      <div className="w-20 h-20 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-5">
-        <Check className="w-10 h-10 text-green-500" strokeWidth={2.5} />
-      </div>
-      <h2 className="text-[22px] font-bold text-gray-900 mb-1">Order Confirmed!</h2>
-      <p className="text-[13px] text-gray-500 mb-4">Thank you for shopping with Aurus. Your order is on its way.</p>
+type PlacedOrder = { orderNumber: string | null; total: number; isCod: boolean };
 
-      <div className="bg-purple-50 border border-purple-100 rounded-xl px-5 py-3 mb-4">
-        <p className="text-[11px] text-purple-500 uppercase tracking-wide font-semibold">Order ID</p>
-        <p className="text-[16px] font-black text-purple-700 mt-0.5 tracking-wider break-all">{orderId}</p>
+const OrderSuccess: React.FC<PlacedOrder & { onClose: () => void }> = ({ orderNumber, total, isCod, onClose }) => (
+  <div className="fixed inset-0 z-[200] flex items-center justify-center px-4 bg-[#1C1917]/50">
+    <div className="bg-white rounded-xl shadow-2xl max-w-[440px] w-full p-8 text-center" role="dialog" aria-modal="true" aria-labelledby="order-success-title">
+      <div className="w-16 h-16 rounded-full bg-[#F0FDF9] flex items-center justify-center mx-auto mb-6">
+        <Check className="w-8 h-8 text-[#0F766E]" strokeWidth={2.5} aria-hidden />
       </div>
+      <h2 id="order-success-title" className="text-[32px] leading-tight font-semibold mb-2" style={SERIF}>Order Confirmed!</h2>
+      <p className="text-[14px] text-[#5F5953] mb-6">Thank you for shopping with Aurus. Your order is on its way.</p>
 
-      <div className="text-left space-y-2 text-[12.5px] text-gray-600 border-t border-gray-100 pt-4 mb-6">
-        <div className="flex justify-between">
-          <span>Amount paid</span>
-          <span className="font-bold text-gray-900">{inr(total)}</span>
+      {/* The customer-facing number — the internal order id is never shown. */}
+      {orderNumber && (
+        <div className="rounded-lg bg-[#F6F2FF] border border-[#E4DAFE] px-6 py-4 mb-2">
+          <p className="text-[11px] text-[#6D28D9] uppercase tracking-[0.16em] font-semibold">Order Number</p>
+          <p className="text-[18px] font-semibold text-[#4C1D95] mt-1 tracking-wider break-all">{orderNumber}</p>
         </div>
+      )}
+      {orderNumber && (
+        <p className="text-[12px] text-[#5F5953] mb-6">Please note your order number — quote it if you contact us about this order.</p>
+      )}
+
+      <div className="flex justify-between text-[14px] border-t border-[#E8E3DB] pt-4 mb-6">
+        <span className="text-[#5F5953]">{isCod ? 'Amount payable on delivery' : 'Amount paid'}</span>
+        <span className="font-semibold tabular-nums">{inr(total)}</span>
       </div>
 
-      <Link
-        to="/jewellery/rings"
-        onClick={onClose}
-        className="block w-full py-3 bg-purple-700 hover:bg-purple-800 text-white font-bold text-[13px] tracking-wide rounded-full transition-colors mb-3"
-      >
+      <Link to="/jewellery" onClick={onClose} className={`${BTN_PRIMARY} w-full h-12 text-[13px]`}>
         Continue Shopping
       </Link>
     </div>
@@ -215,31 +243,46 @@ const OrderSuccess: React.FC<{ orderId: string; total: number; onClose: () => vo
 ═══════════════════════════════════════════════════════════════════ */
 const AurusCheckout: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { data: cartData, isLoading: isCartLoading } = useCart();
-  const { isAuthenticated, customer } = useAuth();
+  const { status: authStatus } = useAuth();
+  // Guests pay through the cart-session-owned guest endpoints. Decided only
+  // once auth has finished restoring, so a returning customer's order is
+  // never placed as a guest just because their session was still loading.
+  const isGuest = authStatus === 'unauthenticated';
 
   // Checkout is only started once the customer leaves the bag-review step —
-  // see the comment above BagReviewSection for why: the checkout engine
-  // hard-blocks any checkout whose cart was mutated after `start` (its own
-  // CART_CHANGED guard, not something this app can bypass), so a coupon can
-  // only ever be applied to the cart *before* checkout begins.
+  // see the comment above BagReviewSection for why.
   const [hasProceededPastBag, setHasProceededPastBag] = useState(false);
   const [checkout, setCheckout] = useState<CheckoutSession | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  // Set when the shopper leaves checkout to change their coupon: the bag step
+  // opens its coupon panel, and their delivery address is offered back to them.
+  const [returnedForCoupon, setReturnedForCoupon] = useState(false);
+  const [rememberedAddress, setRememberedAddress] = useState<CheckoutAddress | null>(null);
 
   const startCheckout = useStartCheckout();
   const updateAddress = useUpdateCheckoutAddress();
   const updateShipping = useUpdateCheckoutShipping();
   const validateCheckout = useValidateCheckout();
+  const cancelCheckout = useCancelCheckout();
   const initiatePayment = useInitiatePayment();
   const retryPayment = useRetryPayment();
 
-  const [gatewayCode, setGatewayCode] = useState<'cod' | 'razorpay'>('cod');
+  // What the shopper picked (UI only). Which gateway — if any — processes it is
+  // decided by CheckoutCta via resolvePaymentSubmission.
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodId>(DEFAULT_PAYMENT_METHOD);
   const [paymentId, setPaymentId] = useState<string | null>(null);
   const [paymentFailed, setPaymentFailed] = useState(false);
-  const [orderSuccess, setOrderSuccess] = useState<{ orderId: string; total: number } | null>(null);
+  const [orderSuccess, setOrderSuccess] = useState<PlacedOrder | null>(null);
+  const [pendingShippingId, setPendingShippingId] = useState<string | null>(null);
 
   const items = cartData?.items ?? [];
+
+  // This checkout attempt is over — the next one may show the account prompt again.
+  useEffect(() => {
+    if (orderSuccess) resetCheckoutPrompt();
+  }, [orderSuccess]);
 
   // Auto-start checkout once the customer has confirmed their bag and the cart is loaded.
   useEffect(() => {
@@ -261,8 +304,11 @@ const AurusCheckout: React.FC = () => {
     );
   };
 
+  // Totals always come back from the backend: the shipping PATCH returns the
+  // recalculated session, then validate refreshes it once more.
   const handleShippingSelect = (shippingMethodId: string) => {
-    if (!checkout) return;
+    if (!checkout || updateShipping.isPending) return;
+    setPendingShippingId(shippingMethodId);
     updateShipping.mutate(
       { checkoutId: checkout.id, shippingMethodId },
       {
@@ -270,211 +316,272 @@ const AurusCheckout: React.FC = () => {
           setCheckout(session);
           validateCheckout.mutate(session.id, { onSuccess: setCheckout });
         },
+        onSettled: () => setPendingShippingId(null),
       },
     );
   };
 
-  const handlePay = () => {
-    if (!checkout) return;
-    setPaymentFailed(false);
-    initiatePayment.mutate(
-      { checkoutId: checkout.id, gatewayCode },
-      {
-        onSuccess: (result) => {
-          setPaymentId(result.paymentId);
-          if (result.redirectUrl) {
-            window.location.href = result.redirectUrl;
-            return;
-          }
-          if (result.status === 'CAPTURED' && result.orderId) {
-            setOrderSuccess({ orderId: result.orderId, total: checkout.totals.grandTotal });
-            return;
-          }
-          if (result.status === 'FAILED') {
-            setPaymentFailed(true);
-          }
-        },
-      },
-    );
-  };
-
-  const handleRetryPayment = () => {
-    if (!paymentId) return;
-    setPaymentFailed(false);
-    retryPayment.mutate(paymentId, {
-      onSuccess: (result) => {
-        setPaymentId(result.paymentId);
-        if (result.redirectUrl) {
-          window.location.href = result.redirectUrl;
-          return;
-        }
-        if (result.status === 'CAPTURED' && result.orderId && checkout) {
-          setOrderSuccess({ orderId: result.orderId, total: checkout.totals.grandTotal });
-          return;
-        }
-        if (result.status === 'FAILED') {
-          setPaymentFailed(true);
-        }
+  // Leaving checkout to change the coupon: a real cancel unlocks the cart.
+  const handleChangeCoupon = () => {
+    if (!checkout || cancelCheckout.isPending) return;
+    const shippingAddress = checkout.addresses.find((a) => a.type === 'SHIPPING') ?? null;
+    cancelCheckout.mutate(checkout.id, {
+      onSuccess: () => {
+        setRememberedAddress(shippingAddress);
+        setReturnedForCoupon(true);
+        setCheckout(null);
+        setHasProceededPastBag(false);
+        setPaymentFailed(false);
+        setPaymentId(null);
+        queryClient.invalidateQueries({ queryKey: CART_QUERY_KEY });
       },
     });
   };
 
+  const onPaymentResult = (result: { paymentId: string; redirectUrl?: string | null; status: string; orderId?: string | null; orderNumber?: string | null; gatewayCode: string }) => {
+    setPaymentId(result.paymentId);
+    if (result.redirectUrl) {
+      window.location.href = result.redirectUrl;
+      return;
+    }
+    if (result.status === 'CAPTURED' && result.orderId && checkout) {
+      setOrderSuccess({ orderNumber: result.orderNumber ?? null, total: checkout.totals.grandTotal, isCod: result.gatewayCode === 'cod' });
+      return;
+    }
+    if (result.status === 'FAILED') {
+      setPaymentFailed(true);
+    }
+  };
+
+  const handlePay = (gatewayCode: GatewayCode) => {
+    if (!checkout || initiatePayment.isPending) return;
+    setPaymentFailed(false);
+    initiatePayment.mutate({ checkoutId: checkout.id, gatewayCode, asGuest: isGuest }, { onSuccess: onPaymentResult });
+  };
+
+  const handleRetryPayment = () => {
+    if (!paymentId || retryPayment.isPending) return;
+    setPaymentFailed(false);
+    retryPayment.mutate({ paymentId, asGuest: isGuest }, { onSuccess: onPaymentResult });
+  };
+
   /* Loading */
   if (isCartLoading || (startCheckout.isPending && !checkout)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F5F3FA]" style={UI}>
-        <Loader2 className="w-10 h-10 animate-spin text-purple-600" />
-      </div>
-    );
+    return <CenterState><Loader2 className="w-8 h-8 animate-spin motion-reduce:animate-none text-[#6D28D9]" aria-label="Loading checkout" /></CenterState>;
   }
 
   /* Empty cart */
-  if (items.length === 0) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F3FA]" style={UI}>
-        <ShoppingBag className="w-14 h-14 text-purple-200 mb-4" />
-        <p className="text-[18px] font-semibold text-gray-700 mb-4">Your cart is empty</p>
-        <Link to="/jewellery/rings" className="bg-purple-700 text-white px-8 py-2.5 rounded-full text-[13px] font-bold hover:bg-purple-800 transition-colors">
-          Browse Collection
-        </Link>
-      </div>
-    );
-  }
+  if (items.length === 0) return <EmptyBag />;
 
   /* Checkout failed to start */
   if (checkoutError && !checkout) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F3FA] px-4" style={UI}>
-        <AlertTriangle className="w-14 h-14 text-red-300 mb-4" />
-        <p className="text-[16px] font-semibold text-gray-700 mb-2 text-center">{checkoutError}</p>
-        <Link to="/cart" className="text-[13px] text-purple-700 font-semibold hover:underline mt-2">
-          Back to Bag
-        </Link>
-      </div>
+      <CenterState>
+        <AlertTriangle className="w-12 h-12 text-[#F4A29B] mb-4" aria-hidden />
+        <p className="text-[16px] font-semibold mb-4 max-w-[420px]" role="alert">{checkoutError}</p>
+        <Link to="/cart" className={LINK_BTN}>Back to Bag</Link>
+      </CenterState>
     );
   }
 
   /* Bag review — the only place a coupon can be applied/removed (see BagReviewSection) */
   if (!hasProceededPastBag || !checkout) {
-    return <BagReviewSection onProceed={() => setHasProceededPastBag(true)} isStartingCheckout={startCheckout.isPending} />;
+    return (
+      <BagReviewSection
+        onProceed={() => setHasProceededPastBag(true)}
+        isStartingCheckout={startCheckout.isPending}
+        openCoupon={returnedForCoupon}
+      />
+    );
   }
 
   const totals = checkout.totals;
+  const isRecalculating = updateShipping.isPending || validateCheckout.isPending;
+  const atPayment = step === 'review' || step === 'payment';
+  const shippingStatus: SectionStatus = step === 'address' ? 'upcoming' : step === 'shipping' ? 'active' : 'done';
+  const paymentStatus: SectionStatus = atPayment ? 'active' : 'upcoming';
+  const savings = totals.totalDiscount + totals.promotionDiscount;
+  const issues = checkout.validation.issues;
+
+  const couponExtras = (
+    <CheckoutCouponPanel
+      appliedCode={checkout.appliedPromotion?.code ?? null}
+      discount={totals.promotionDiscount}
+      onChange={handleChangeCoupon}
+      isLeaving={cancelCheckout.isPending}
+      disabled={initiatePayment.isPending || retryPayment.isPending}
+    />
+  );
 
   return (
-    <div className="min-h-screen bg-[#F5F3FA]" style={UI}>
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div className="max-w-[1280px] mx-auto px-6 h-[54px] flex items-center gap-4">
-          <button onClick={() => navigate('/cart')} className="text-gray-600 hover:text-purple-700 transition-colors flex items-center gap-1.5 text-[13px]">
-            <ArrowLeft className="w-4 h-4" /> Back to Bag
-          </button>
-          <div className="flex-1 text-center">
-            <span className="text-[18px] font-light text-gray-900" style={SERIF}>Checkout</span>
-          </div>
-          <div className="hidden sm:flex items-center gap-1.5 text-[11px]" style={UI}>
-            <span className={step === 'address' ? 'text-purple-700 font-bold' : 'text-gray-400'}>① Address</span>
-            <ChevronRight className="w-3 h-3 text-gray-300" />
-            <span className={step === 'shipping' ? 'text-purple-700 font-bold' : 'text-gray-400'}>② Shipping</span>
-            <ChevronRight className="w-3 h-3 text-gray-300" />
-            <span className={step === 'review' || step === 'payment' ? 'text-purple-700 font-bold' : 'text-gray-400'}>③ Review &amp; Pay</span>
-          </div>
-        </div>
-      </header>
+    <CheckoutShell currentStep={STEP_INDEX[step]} onBackToBag={() => navigate('/cart')}>
+      <main className={PAGE_GRID}>
+        {/* ── LEFT: the three checkout sections ── */}
+        <div className="space-y-4 min-w-0">
+          <h1 className="sr-only">Checkout</h1>
+          {isGuest && <GuestCheckoutBanner />}
 
-      <div className="max-w-[1280px] mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-        {/* ── LEFT ── */}
-        <div className="space-y-5">
           <AddressSection
             checkout={checkout}
             isSaving={updateAddress.isPending}
             onSubmit={handleAddressSubmit}
+            initialAddress={rememberedAddress}
           />
 
-          {step !== 'address' && (
-            <ShippingSection
-              checkout={checkout}
-              isSaving={updateShipping.isPending}
+          <SectionCard
+            index={2}
+            title="Shipping Method"
+            status={shippingStatus}
+            upcomingHint="Choose how fast you’d like it, once your address is confirmed."
+          >
+            <ShippingOptions
+              methods={checkout.availableShippingMethods}
+              selectedId={checkout.selectedShippingMethod?.id ?? null}
+              pendingId={pendingShippingId}
+              disabled={updateShipping.isPending || initiatePayment.isPending}
               onSelect={handleShippingSelect}
             />
-          )}
+          </SectionCard>
 
-        </div>
-
-        {/* ── RIGHT: Summary + Pay ── */}
-        <div className="space-y-4">
-          <div className="bg-white rounded-xl shadow-sm p-5">
-            <h2 className="text-[14px] font-bold text-gray-900 mb-4">
-              Order Summary ({checkout.items.length} item{checkout.items.length > 1 ? 's' : ''})
-            </h2>
-            <div className="space-y-3">
-              {checkout.items.map((item) => (
-                <div key={item.id} className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
-                    <img src={item.image} alt={item.name} loading="lazy" className="w-full h-full object-cover" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-medium text-gray-800 line-clamp-1">{item.name}</p>
-                    <p className="text-[11px] text-gray-400 mt-0.5">Qty: {item.quantity}</p>
-                  </div>
-                  <span className="text-[13px] font-bold text-gray-900 flex-shrink-0">{inr(item.lineTotal)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm px-5 py-4 space-y-2.5">
-            <PriceRow label="Subtotal" value={inr(totals.subtotal)} />
-            {totals.totalDiscount > 0 && <PriceRow label="Discount" value={`− ${inr(totals.totalDiscount)}`} valueColor="#00897B" />}
-            {totals.promotionDiscount > 0 && (
-              <PriceRow label={`Coupon (${checkout.appliedPromotion?.code ?? ''})`} value={`− ${inr(totals.promotionDiscount)}`} valueColor="#00897B" />
-            )}
-            <PriceRow label="Shipping" value={totals.shippingCost === 0 ? 'FREE' : inr(totals.shippingCost)} valueColor={totals.shippingCost === 0 ? '#00897B' : undefined} />
-            <PriceRow label="Tax" value={inr(totals.taxAmount)} />
-            <div className="h-px bg-gray-200 my-1" />
-            <div className="flex items-center justify-between">
-              <span className="text-[15px] font-bold text-gray-900">Total</span>
-              <span className="text-[16px] font-black text-gray-900">{inr(totals.grandTotal)}</span>
-            </div>
-          </div>
-
-          {checkout.validation.issues.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-[12px] text-amber-800 space-y-1">
-              {checkout.validation.issues.map((issue, i) => (
-                <p key={i}>{issue.message}</p>
-              ))}
-            </div>
-          )}
-
-          {(step === 'review' || step === 'payment') && (
+          <SectionCard
+            index={3}
+            title="Payment Method"
+            status={paymentStatus}
+            upcomingHint="Available once your delivery method is selected."
+          >
             <PaymentSection
-              isAuthenticated={isAuthenticated}
-              checkout={checkout}
-              gatewayCode={gatewayCode}
-              onGatewayChange={setGatewayCode}
-              onPay={handlePay}
-              isPaying={initiatePayment.isPending}
-              paymentFailed={paymentFailed}
-              onRetry={handleRetryPayment}
-              isRetrying={retryPayment.isPending}
+              method={paymentMethod}
+              onMethodChange={setPaymentMethod}
+              disabled={initiatePayment.isPending || retryPayment.isPending}
               grandTotal={totals.grandTotal}
             />
+          </SectionCard>
+        </div>
+
+        {/* ── RIGHT: sticky summary + CTA ── */}
+        <aside className={ASIDE} aria-label="Order total and payment">
+          <OrderSummary
+            items={checkout.items}
+            total={totals.grandTotal}
+            isUpdating={isRecalculating}
+            extras={couponExtras}
+            breakdown={(
+              <>
+                <PriceRow label="Subtotal" value={inr(totals.subtotal)} />
+                {totals.totalDiscount > 0 && <PriceRow label="Discount" value={`− ${inr(totals.totalDiscount)}`} tone="success" />}
+                {totals.promotionDiscount > 0 && (
+                  <PriceRow label={`Coupon (${checkout.appliedPromotion?.code ?? ''})`} value={`− ${inr(totals.promotionDiscount)}`} tone="success" />
+                )}
+                <PriceRow
+                  label="Shipping"
+                  value={!checkout.selectedShippingMethod ? 'Select a method' : totals.shippingCost === 0 ? 'FREE' : inr(totals.shippingCost)}
+                  tone={!checkout.selectedShippingMethod ? 'muted' : totals.shippingCost === 0 ? 'success' : 'default'}
+                />
+                <PriceRow label="Tax" value={inr(totals.taxAmount)} />
+                {atPayment && <PriceRow label="Payment" value={getPaymentMethod(paymentMethod).label} />}
+              </>
+            )}
+            notes={(
+              <>
+                {totals.taxAmount > 0 && <span>Includes {inr(totals.taxAmount)} tax</span>}
+                {savings > 0 && <span className="font-medium text-[#0F766E]">You save {inr(savings)}</span>}
+              </>
+            )}
+          />
+
+          {issues.length > 0 && (
+            <div role="alert" className="rounded-lg border border-[#F5D9A8] bg-[#FFFAEB] px-4 py-4 text-[13px] text-[#93370D] space-y-1">
+              {issues.map((issue, i) => <p key={i}>{issue.message}</p>)}
+            </div>
           )}
 
-          <div className="flex items-center justify-center gap-1.5 text-[11px] text-gray-400">
-            <Lock className="w-3 h-3" />
-            100% Secure &amp; Encrypted Payment
-          </div>
-        </div>
-      </div>
+          {atPayment && (
+            <div className={CTA_DOCK}>
+              <CheckoutCta
+                method={paymentMethod}
+                grandTotal={totals.grandTotal}
+                canPay={checkout.validation.isValid}
+                isAuthResolving={authStatus === 'bootstrapping'}
+                onPay={handlePay}
+                isPaying={initiatePayment.isPending}
+                paymentFailed={paymentFailed}
+                onRetry={handleRetryPayment}
+                isRetrying={retryPayment.isPending}
+                isUpdating={isRecalculating}
+              />
+            </div>
+          )}
+          <SecureNote />
+        </aside>
+      </main>
 
       {orderSuccess && (
         <OrderSuccess
-          orderId={orderSuccess.orderId}
-          total={orderSuccess.total}
-          onClose={() => { setOrderSuccess(null); navigate('/jewellery/rings'); }}
+          {...orderSuccess}
+          onClose={() => { setOrderSuccess(null); navigate('/jewellery'); }}
         />
       )}
+    </CheckoutShell>
+  );
+};
+
+/* ─── Coupon panel (checkout step) ─────────────────────────────────────── */
+/**
+ * Expandable coupon row in the summary. The cart is locked during checkout,
+ * so changing a coupon means leaving checkout: a real cancel unlocks the cart
+ * and returns the shopper to the bag step with the coupon field open.
+ */
+const CheckoutCouponPanel: React.FC<{
+  appliedCode: string | null;
+  discount: number;
+  onChange: () => void;
+  isLeaving: boolean;
+  disabled: boolean;
+}> = ({ appliedCode, discount, onChange, isLeaving, disabled }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <Disclosure
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
+      icon={<Tag className="w-4 h-4 text-[#6D28D9] flex-shrink-0" aria-hidden />}
+      summary={appliedCode
+        ? <>Coupon <span className="font-semibold text-[#0F766E]">{appliedCode}</span> applied</>
+        : 'Have a coupon code?'}
+    >
+      <div className="space-y-2">
+        {appliedCode && discount > 0 && (
+          <p className="text-[13px] font-medium text-[#0F766E]">You’re saving {inr(discount)} with {appliedCode}.</p>
+        )}
+        <p className="text-[13px] leading-relaxed text-[#5F5953]">
+          Coupons are applied to your bag. {appliedCode ? 'To change or remove it' : 'To use one'}, return to your bag — you’ll confirm delivery details again afterwards.
+        </p>
+        <button type="button" onClick={onChange} disabled={isLeaving || disabled} className={`${BTN_SECONDARY} h-10 px-4 text-[13px]`}>
+          {isLeaving && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />}
+          {appliedCode ? 'Change coupon' : 'Apply a coupon'}
+        </button>
+      </div>
+    </Disclosure>
+  );
+};
+
+/* ─── Guest banner ───────────────────────────────────────────────────── */
+/**
+ * The explicit way back to the optional account prompt for a guest who
+ * already chose (or dismissed) it on the cart page. Signing in from here
+ * resumes this same checkout — it's owned by the cart-session cookie.
+ */
+const GuestCheckoutBanner: React.FC = () => {
+  const [promptOpen, setPromptOpen] = useState(false);
+  return (
+    <div className={`${CARD} px-4 sm:px-6 py-4 flex flex-wrap items-center gap-x-4 gap-y-2`}>
+      <UserRound className="w-5 h-5 text-[#6D28D9] flex-shrink-0" aria-hidden />
+      <p className="flex-1 min-w-[180px] text-[14px] text-[#5F5953]">
+        You&apos;re checking out as a guest.
+      </p>
+      <button type="button" onClick={() => setPromptOpen(true)} className={LINK_BTN}>
+        Sign in or create an account
+      </button>
+      <GuestCheckoutPrompt open={promptOpen} onOpenChange={setPromptOpen} onContinueAsGuest={() => {}} />
     </div>
   );
 };
@@ -484,7 +591,8 @@ const AddressSection: React.FC<{
   checkout: CheckoutSession;
   isSaving: boolean;
   onSubmit: (address: AddressInput) => void;
-}> = ({ checkout, isSaving, onSubmit }) => {
+  initialAddress?: CheckoutAddress | null;
+}> = ({ checkout, isSaving, onSubmit, initialAddress }) => {
   const { isAuthenticated, customer } = useAuth();
   const { data: addresses, isLoading: isLoadingAddresses } = useAddresses(isAuthenticated);
   const createAddress = useCreateAddress();
@@ -495,9 +603,18 @@ const AddressSection: React.FC<{
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
   const [addressError, setAddressError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    firstName: '', lastName: '', line1: '', line2: '', city: '', state: '', postalCode: '', phone: '',
-  });
+  // A shopper who stepped back to change their coupon gets their typed address back.
+  const [form, setForm] = useState(() => ({
+    firstName:  initialAddress?.firstName ?? '',
+    lastName:   initialAddress?.lastName ?? '',
+    line1:      initialAddress?.line1 ?? '',
+    line2:      initialAddress?.line2 ?? '',
+    city:       initialAddress?.city ?? '',
+    state:      initialAddress?.state ?? '',
+    postalCode: initialAddress?.postalCode ?? '',
+    phone:      initialAddress?.phone ?? '',
+    email:      initialAddress?.email ?? '',
+  }));
   const FIELD_MAX_LENGTH: Partial<Record<keyof typeof form, number>> = { phone: 10, postalCode: 6 };
   const set = (key: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [key]: v.slice(0, FIELD_MAX_LENGTH[key] ?? 255) }));
 
@@ -510,21 +627,48 @@ const AddressSection: React.FC<{
 
   if (!isEditing && shippingAddress) {
     return (
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-purple-600" />
-            <h2 className="text-[15px] font-bold text-gray-900">Delivery Address</h2>
+      <SectionCard
+        index={1}
+        title="Delivery Address"
+        status="done"
+      >
+        <address className="not-italic rounded-xl bg-[#FAF8F5] border border-[#E8E3DB] px-4 sm:px-6 py-4 min-w-0">
+          <div className="flex items-start justify-between gap-4">
+            <p className="text-[17px] font-semibold leading-10 text-[#1C1917] break-words min-w-0">
+              {shippingAddress.firstName} {shippingAddress.lastName}
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              aria-label="Change delivery address"
+              className={`inline-flex flex-shrink-0 items-center gap-2 h-10 px-4 rounded-lg border border-[#E4DAFE] bg-white text-[13px] font-semibold text-[#6D28D9] hover:bg-[#F6F2FF] hover:border-[#C4B5FD] ${EASE} ${FOCUS}`}
+            >
+              <Pencil className="w-3.5 h-3.5" aria-hidden /> Change
+            </button>
           </div>
-          <button onClick={() => setIsEditing(true)} className="text-[12px] font-semibold text-purple-700 hover:underline">
-            Change
-          </button>
-        </div>
-        <p className="text-[13px] text-gray-700">{shippingAddress.firstName} {shippingAddress.lastName}</p>
-        <p className="text-[12.5px] text-gray-500">{shippingAddress.line1}{shippingAddress.line2 ? `, ${shippingAddress.line2}` : ''}</p>
-        <p className="text-[12.5px] text-gray-500">{shippingAddress.city}, {shippingAddress.state} {shippingAddress.postalCode}</p>
-        <p className="text-[12.5px] text-gray-500">{shippingAddress.phone}</p>
-      </div>
+          <ul className="mt-2 space-y-2 text-[14px] leading-6 text-[#5F5953]">
+            <li className="flex gap-2">
+              <MapPin className="w-4 h-4 mt-1 text-[#6D28D9] flex-shrink-0" aria-hidden />
+              <span className="min-w-0 break-words">
+                <span className="sr-only">Address: </span>
+                {shippingAddress.line1}{shippingAddress.line2 ? `, ${shippingAddress.line2}` : ''}
+                <br />
+                {shippingAddress.city}, {shippingAddress.state} {shippingAddress.postalCode}
+              </span>
+            </li>
+            <li className="flex gap-2 items-center">
+              <Phone className="w-4 h-4 text-[#6D28D9] flex-shrink-0" aria-hidden />
+              <span><span className="sr-only">Phone: </span><span className="text-[#1C1917] tabular-nums">{shippingAddress.phone}</span></span>
+            </li>
+            {!isAuthenticated && shippingAddress.email && (
+              <li className="flex gap-2 items-center min-w-0">
+                <Mail className="w-4 h-4 text-[#6D28D9] flex-shrink-0" aria-hidden />
+                <span className="truncate"><span className="sr-only">Email: </span>{shippingAddress.email}</span>
+              </li>
+            )}
+          </ul>
+        </address>
+      </SectionCard>
     );
   }
 
@@ -558,6 +702,11 @@ const AddressSection: React.FC<{
       setAddressError('Please fill in all required fields.');
       return;
     }
+    // Guests have no account email — the order and payment need one to reach them.
+    if (!isAuthenticated && !EMAIL_PATTERN.test(form.email.trim())) {
+      setAddressError('Please enter a valid email address for your order updates.');
+      return;
+    }
 
     const input: AddressInput = {
       firstName: form.firstName.trim(),
@@ -569,7 +718,7 @@ const AddressSection: React.FC<{
       postalCode: form.postalCode.trim(),
       country: 'IN',
       phone: form.phone.trim(),
-      email: customer?.email,
+      email: customer?.email ?? form.email.trim(),
     };
 
     if (isAuthenticated) {
@@ -591,61 +740,63 @@ const AddressSection: React.FC<{
     setIsEditing(false);
   };
 
-  return (
-    <div className="bg-white rounded-xl shadow-sm p-6">
-      <div className="flex items-center gap-2 mb-5">
-        <MapPin className="w-4.5 h-4.5 text-purple-600" style={{ width: 18, height: 18 }} />
-        <h2 className="text-[15px] font-bold text-gray-900">Delivery Address</h2>
-      </div>
+  const cancelEdit = shippingAddress ? (
+    <button type="button" onClick={() => { setIsEditing(false); setAddressError(null); }} className={LINK_BTN}>Cancel</button>
+  ) : undefined;
 
+  return (
+    <SectionCard index={1} title="Delivery Address" status="active" action={cancelEdit}>
       {addressError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-[12.5px] rounded-lg px-4 py-3 mb-4">{addressError}</div>
+        <div role="alert" className="rounded-lg border border-[#F4C7C3] bg-[#FEF3F2] text-[#B42318] text-[13px] px-4 py-2 mb-4">{addressError}</div>
       )}
 
       {isAuthenticated && mode === 'select' && (
-        <div className="space-y-3">
-          {isLoadingAddresses && <Loader2 className="w-5 h-5 animate-spin text-purple-600" />}
+        <div className="space-y-4">
+          {isLoadingAddresses && <Loader2 className="w-5 h-5 animate-spin motion-reduce:animate-none text-[#6D28D9]" aria-label="Loading saved addresses" />}
           {!isLoadingAddresses && addresses && addresses.length === 0 && (
-            <p className="text-[13px] text-gray-500 mb-2">You don&apos;t have any saved addresses yet.</p>
+            <p className="text-[14px] text-[#5F5953]">You don&apos;t have any saved addresses yet.</p>
           )}
-          {!isLoadingAddresses && addresses?.map((addr) => (
-            <label
-              key={addr.id}
-              className="flex items-start gap-3 border-2 rounded-xl px-4 py-3 cursor-pointer transition-colors"
-              style={{ borderColor: selectedAddressId === addr.id ? '#7C3AED' : '#E5E7EB', background: selectedAddressId === addr.id ? '#FAF5FF' : '#fff' }}
-            >
-              <input
-                type="radio"
-                name="address"
-                checked={selectedAddressId === addr.id}
-                onChange={() => setSelectedAddressId(addr.id)}
-                className="mt-1"
-              />
-              <div className="text-[12.5px]">
-                <p className="font-semibold text-gray-800">{addr.label || 'Address'} {addr.isDefault && <span className="text-purple-600 text-[10px] font-bold uppercase ml-1">Default</span>}</p>
-                <p className="text-gray-600">{[addr.firstName, addr.lastName].filter(Boolean).join(' ')}</p>
-                <p className="text-gray-500">{addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}, {addr.city}, {addr.state} {addr.postalCode}</p>
-                {addr.phone && <p className="text-gray-500">{addr.phone}</p>}
-              </div>
-            </label>
-          ))}
+          {!isLoadingAddresses && addresses && addresses.length > 0 && (
+            <fieldset className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4 min-w-0">
+              <legend className="sr-only">Saved addresses</legend>
+              {addresses.map((addr) => {
+                const sel = selectedAddressId === addr.id;
+                return (
+                  <label
+                    key={addr.id}
+                    className={`${optionCard(sel)} !items-start px-4 py-4`}
+                  >
+                    <input type="radio" name="address" checked={sel} onChange={() => setSelectedAddressId(addr.id)} className="sr-only" />
+                    <span className="mt-0.5"><RadioDot checked={sel} /></span>
+                    <span className="text-[13px] leading-relaxed min-w-0 break-words">
+                      <span className="flex items-center gap-2 font-semibold text-[#1C1917]">
+                        {addr.label || 'Address'}
+                        {addr.isDefault && <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#6D28D9] bg-white border border-[#E4DAFE] rounded px-2 py-px">Default</span>}
+                      </span>
+                      <span className="block text-[#1C1917]">{[addr.firstName, addr.lastName].filter(Boolean).join(' ')}</span>
+                      <span className="block text-[#5F5953]">{addr.line1}{addr.line2 ? `, ${addr.line2}` : ''}, {addr.city}, {addr.state} {addr.postalCode}</span>
+                      {addr.phone && <span className="block text-[#5F5953] tabular-nums">{addr.phone}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+          )}
 
-          <div className="flex gap-3 pt-1">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
             <button
+              type="button"
               disabled={!selectedAddressId || isSaving}
               onClick={() => {
                 const addr = addresses?.find((a) => a.id === selectedAddressId);
                 if (addr) submitSavedAddress(addr);
               }}
-              className="flex-1 py-2.5 text-white text-[13px] font-bold rounded-lg transition-all disabled:opacity-50 hover:opacity-90"
-              style={{ background: 'linear-gradient(90deg,#9333EA,#7B22F9)' }}
+              className={`${BTN_PRIMARY} flex-1 h-12 text-[13px]`}
             >
+              {isSaving && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />}
               {isSaving ? 'Saving…' : 'Deliver to this address'}
             </button>
-            <button
-              onClick={() => setMode('new')}
-              className="flex-1 py-2.5 border border-purple-200 text-purple-700 text-[13px] font-semibold rounded-lg hover:bg-purple-50 transition-colors"
-            >
+            <button type="button" onClick={() => setMode('new')} className={`${BTN_SECONDARY} flex-1 h-12 text-[13px]`}>
               + Add New Address
             </button>
           </div>
@@ -655,205 +806,99 @@ const AddressSection: React.FC<{
       {(!isAuthenticated || mode === 'new') && (
         <form onSubmit={submitNewAddress} noValidate>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="First Name *" value={form.firstName} onChange={set('firstName')} placeholder="Priya" />
-            <Field label="Last Name *" value={form.lastName} onChange={set('lastName')} placeholder="Sharma" />
-            <Field label="Mobile Number *" value={form.phone} onChange={set('phone')} placeholder="10-digit number" type="tel" />
-            <Field label="Pincode *" value={form.postalCode} onChange={set('postalCode')} placeholder="6-digit pincode" type="tel" />
-            <Field label="City *" value={form.city} onChange={set('city')} placeholder="Mumbai" />
-            <Field label="State *" value={form.state} onChange={set('state')} placeholder="Maharashtra" />
-            <div className="sm:col-span-2">
-              <Field label="Address (House / Flat / Area) *" value={form.line1} onChange={set('line1')} placeholder="House No., Street, Locality" />
-            </div>
-            <div className="sm:col-span-2">
-              <Field label="Landmark" value={form.line2} onChange={set('line2')} placeholder="Optional" />
-            </div>
+            <Field label="First Name" required value={form.firstName} onChange={set('firstName')} placeholder="Priya" autoComplete="given-name" />
+            <Field label="Last Name" required value={form.lastName} onChange={set('lastName')} placeholder="Sharma" autoComplete="family-name" />
+            {!isAuthenticated && (
+              <Field className="sm:col-span-2" label="Email" required value={form.email} onChange={set('email')} placeholder="you@example.com" type="email" autoComplete="email" inputMode="email" />
+            )}
+            <Field label="Mobile Number" required value={form.phone} onChange={set('phone')} placeholder="10-digit number" type="tel" autoComplete="tel-national" inputMode="numeric" />
+            <Field label="Pincode" required value={form.postalCode} onChange={set('postalCode')} placeholder="6-digit pincode" type="tel" autoComplete="postal-code" inputMode="numeric" />
+            <Field label="City" required value={form.city} onChange={set('city')} placeholder="Mumbai" autoComplete="address-level2" />
+            <Field label="State" required value={form.state} onChange={set('state')} placeholder="Maharashtra" autoComplete="address-level1" />
+            <Field className="sm:col-span-2" label="Address (House / Flat / Area)" required value={form.line1} onChange={set('line1')} placeholder="House No., Street, Locality" autoComplete="address-line1" />
+            <Field className="sm:col-span-2" label="Landmark" value={form.line2} onChange={set('line2')} placeholder="Optional" autoComplete="address-line2" />
           </div>
-          <div className="flex gap-3 mt-4">
-            <button
-              type="submit"
-              disabled={isSaving || createAddress.isPending}
-              className="flex-1 py-2.5 text-white text-[13px] font-bold rounded-lg transition-all disabled:opacity-50 hover:opacity-90"
-              style={{ background: 'linear-gradient(90deg,#9333EA,#7B22F9)' }}
-            >
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-6">
+            <button type="submit" disabled={isSaving || createAddress.isPending} className={`${BTN_PRIMARY} flex-1 h-12 text-[13px]`}>
+              {(isSaving || createAddress.isPending) && <Loader2 className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden />}
               {isSaving || createAddress.isPending ? 'Saving…' : 'Deliver to this address'}
             </button>
             {isAuthenticated && (
-              <button
-                type="button"
-                onClick={() => setMode('select')}
-                className="flex-1 py-2.5 border border-gray-300 text-gray-700 text-[13px] font-semibold rounded-lg hover:bg-gray-50 transition-colors"
-              >
+              <button type="button" onClick={() => setMode('select')} className={`${BTN_SECONDARY} flex-1 h-12 text-[13px]`}>
                 Cancel
               </button>
             )}
           </div>
         </form>
       )}
-    </div>
+    </SectionCard>
   );
 };
 
-/* ─── Shipping section ─────────────────────────────────────────────────── */
-const ShippingSection: React.FC<{
-  checkout: CheckoutSession;
-  isSaving: boolean;
-  onSelect: (shippingMethodId: string) => void;
-}> = ({ checkout, isSaving, onSelect }) => (
-  <div className="bg-white rounded-xl shadow-sm p-6">
-    <div className="flex items-center gap-2 mb-5">
-      <Truck className="w-4.5 h-4.5 text-purple-600" style={{ width: 18, height: 18 }} />
-      <h2 className="text-[15px] font-bold text-gray-900">Shipping Method</h2>
-    </div>
-    <div className="space-y-3">
-      {checkout.availableShippingMethods.map((m) => {
-        const sel = checkout.selectedShippingMethod?.id === m.id;
+/* ─── Shipping options ─────────────────────────────────────────────────── */
+const shippingIcon = (m: CheckoutShippingMethod) =>
+  /same[\s-]?day/i.test(m.name) ? Clock : /express|priority/i.test(m.name) ? Zap : Truck;
+
+/** "Delivered in 5–7 business days" already says "5–7 days" — don't repeat it. */
+const shippingDetail = (m: CheckoutShippingMethod) => {
+  const desc = m.description?.trim();
+  if (!desc) return m.estimatedDays;
+  const days = m.estimatedDays?.replace(/\s*days?$/i, '').trim();
+  return days && desc.includes(days) ? desc : [m.estimatedDays, desc].filter(Boolean).join(' · ');
+};
+
+/**
+ * Selectable shipping cards (a native radio group). Picking one PATCHes the
+ * checkout; the summary shows the backend's recalculated totals once they land.
+ */
+const ShippingOptions: React.FC<{
+  methods: CheckoutShippingMethod[];
+  selectedId: string | null;
+  pendingId: string | null;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}> = ({ methods, selectedId, pendingId, disabled, onSelect }) => {
+  if (methods.length === 0) {
+    return <p className="text-[14px] text-[#5F5953]">No delivery options are available for this address. Please try a different address.</p>;
+  }
+  return (
+    <fieldset className="grid grid-cols-1 auto-rows-fr gap-2 min-w-0" disabled={disabled}>
+      <legend className="sr-only">Shipping method</legend>
+      {methods.map((m) => {
+        const sel = (pendingId ?? selectedId) === m.id;
+        const Icon = shippingIcon(m);
+        const isPending = pendingId === m.id;
         return (
-          <button
-            key={m.id}
-            disabled={isSaving}
-            onClick={() => onSelect(m.id)}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left disabled:opacity-60"
-            style={{ borderColor: sel ? '#7C3AED' : '#E5E7EB', background: sel ? '#FAF5FF' : '#fff' }}
-          >
-            <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: sel ? '#7C3AED' : '#CBD5E1' }}>
-              {sel && <div className="w-2 h-2 rounded-full bg-purple-700" />}
-            </div>
-            <div className="flex-1">
-              <p className="text-[13px] font-semibold text-gray-800">{m.name}</p>
-              <p className="text-[11px] text-gray-400">{m.estimatedDays}</p>
-            </div>
-            <span className="text-[13px] font-bold text-gray-900">{m.isFree ? 'FREE' : inr(m.cost)}</span>
-          </button>
+          <label key={m.id} className={`${optionCard(sel)} min-h-[84px] px-4 py-4`}>
+            <input
+              type="radio"
+              name="shipping-method"
+              value={m.id}
+              checked={sel}
+              onChange={() => { if (m.id !== selectedId) onSelect(m.id); }}
+              className="sr-only"
+            />
+            <RadioDot checked={sel} />
+            <span aria-hidden className={`${optionIcon(sel)} hidden min-[400px]:flex`}>
+              {isPending ? <Loader2 className="w-5 h-5 animate-spin motion-reduce:animate-none" /> : <Icon className="w-5 h-5" strokeWidth={1.75} />}
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-[15px] font-semibold leading-5 text-[#1C1917]">{m.name}</span>
+              <span className="block text-[13px] leading-5 text-[#5F5953] mt-1">{shippingDetail(m)}</span>
+            </span>
+            <span className="flex-shrink-0 text-right">
+              {m.isFree ? (
+                <span className="inline-flex items-center h-7 px-2 rounded-full bg-[#F0FDF9] border border-[#B7E4DA] text-[12px] font-semibold tracking-wide text-[#0F766E]">FREE</span>
+              ) : (
+                <span className="text-[15px] font-semibold tabular-nums" style={{ color: C.ink }}>{inr(m.cost)}</span>
+              )}
+            </span>
+          </label>
         );
       })}
-    </div>
-  </div>
-);
-
-
-/* ─── Payment section ───────────────────────────────────────────────────── */
-const PaymentSection: React.FC<{
-  isAuthenticated: boolean;
-  checkout: CheckoutSession;
-  gatewayCode: 'cod' | 'razorpay';
-  onGatewayChange: (g: 'cod' | 'razorpay') => void;
-  onPay: () => void;
-  isPaying: boolean;
-  paymentFailed: boolean;
-  onRetry: () => void;
-  isRetrying: boolean;
-  grandTotal: number;
-}> = ({
-  isAuthenticated, checkout, gatewayCode, onGatewayChange, onPay, isPaying, paymentFailed, onRetry, isRetrying, grandTotal,
-}) => {
-  if (!isAuthenticated) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm p-5 text-center">
-        <p className="text-[13px] text-gray-600 mb-3">Log in to complete your purchase.</p>
-        <Link
-          to={`/login?redirect=${encodeURIComponent('/checkout')}`}
-          className="block w-full py-3 text-white text-[13px] font-black tracking-wide uppercase rounded-xl transition-all hover:opacity-90"
-          style={{ background: 'linear-gradient(90deg,#9333EA,#7B22F9)' }}
-        >
-          Log In to Pay
-        </Link>
-      </div>
-    );
-  }
-
-  if (paymentFailed) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm p-5">
-        <div className="flex items-center gap-2 text-red-600 mb-3">
-          <AlertTriangle className="w-4 h-4" />
-          <p className="text-[13px] font-semibold">Payment failed</p>
-        </div>
-        <button
-          onClick={onRetry}
-          disabled={isRetrying}
-          className="w-full flex items-center justify-center gap-2 py-3 text-white text-[13px] font-black tracking-wide uppercase rounded-xl transition-all disabled:opacity-50 hover:opacity-90"
-          style={{ background: 'linear-gradient(90deg,#9333EA,#7B22F9)' }}
-        >
-          {isRetrying ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          Retry Payment
-        </button>
-      </div>
-    );
-  }
-
-  const canPay = checkout.validation.isValid;
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm p-6">
-      <div className="flex items-center gap-2 mb-5">
-        <CreditCard className="w-4.5 h-4.5 text-purple-600" style={{ width: 18, height: 18 }} />
-        <h2 className="text-[15px] font-bold text-gray-900">Payment Method</h2>
-      </div>
-      <div className="space-y-3 mb-5">
-        {([
-          { id: 'cod' as const, label: 'Cash on Delivery', sub: 'Pay when you receive' },
-          { id: 'razorpay' as const, label: 'Pay Online', sub: 'UPI, Card, Netbanking via Razorpay' },
-        ]).map((m) => {
-          const sel = gatewayCode === m.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => onGatewayChange(m.id)}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left"
-              style={{ borderColor: sel ? '#7C3AED' : '#E5E7EB', background: sel ? '#FAF5FF' : '#fff' }}
-            >
-              <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: sel ? '#7C3AED' : '#CBD5E1' }}>
-                {sel && <div className="w-2 h-2 rounded-full bg-purple-700" />}
-              </div>
-              <div>
-                <p className="text-[13px] font-semibold text-gray-800">{m.label}</p>
-                <p className="text-[11px] text-gray-400">{m.sub}</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      <button
-        onClick={onPay}
-        disabled={!canPay || isPaying}
-        aria-label="Complete purchase"
-        className="w-full py-4 text-white text-[14px] font-black tracking-[0.12em] uppercase rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 active:scale-[0.98]"
-        style={{ background: canPay ? 'linear-gradient(90deg,#9333EA,#7B22F9)' : '#9CA3AF', boxShadow: canPay ? '0 4px 14px rgba(124,58,237,0.4)' : 'none' }}
-      >
-        {isPaying ? 'Processing…' : canPay ? `PAY ${inr(grandTotal)}` : 'RESOLVE ISSUES TO CONTINUE'}
-      </button>
-    </div>
+    </fieldset>
   );
 };
 
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
-const Field: React.FC<{
-  label: string; value: string; onChange: (v: string) => void;
-  placeholder?: string; type?: string;
-}> = ({
-  label, value, onChange, placeholder, type = 'text',
-}) => (
-  <div>
-    <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wide block mb-1.5" style={UI}>
-      {label}
-    </label>
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-[13px] outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 transition-all"
-      style={UI}
-    />
-  </div>
-);
-
-const PriceRow: React.FC<{ label: string; value: string; valueColor?: string }> = ({ label, value, valueColor }) => (
-  <div className="flex items-center justify-between text-[12.5px]" style={UI}>
-    <span className="text-gray-500">{label}</span>
-    <span className="font-semibold" style={{ color: valueColor ?? '#1F2937' }}>{value}</span>
-  </div>
-);
-
 export default AurusCheckout;
+

@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { Card, PageHeader, Btn, Badge } from './ui';
 import ProductModal from './ProductModal';
 import CreateProduct from './CreateProduct';
+import { formatMoney } from '@/lib/money';
+import { useStoreCurrency } from '@/hooks/useStoreCurrency';
 import {
   useProducts, useProductStats, useDeleteProduct,
   useBulkDeleteProducts, useBulkStatusProducts, useDuplicateProduct,
@@ -32,9 +34,9 @@ const SORT_OPTIONS = [
   { value: 'stock:asc', label: 'Low Stock First' },
 ];
 
-const fmtPrice = (p: any) => `$${Number(p).toFixed(2)}`;
-
 const Products: React.FC = () => {
+  const currency = useStoreCurrency();
+  const fmtPrice = (p: any) => formatMoney(p, currency);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const [sort, setSort] = useState('createdAt:desc');
@@ -197,6 +199,11 @@ const Products: React.FC = () => {
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
                         {p.category?.name ?? '—'}
                       </span>
+                      {p.vendor && (
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400" title="Vendor">
+                          by {p.vendor.name}{p.vendor.status !== 'ACTIVE' ? ' (inactive)' : ''}
+                        </p>
+                      )}
                     </td>
                     <td className="p-3 font-semibold text-slate-900 dark:text-white">{fmtPrice(p.price)}</td>
                     <td className="p-3">

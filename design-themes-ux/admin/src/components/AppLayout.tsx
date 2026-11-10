@@ -23,7 +23,8 @@ import Brands from '@/admin/Brands';
 import Collections from '@/admin/Collections';
 import Attributes from '@/admin/Attributes';
 import Variants from '@/admin/Variants';
-import { Payments, Shipping, Loyalty, SEO, Marketplace } from '@/admin/Modules';
+import { Payments, Shipping, Loyalty, SEO } from '@/admin/Modules';
+import { Vendors } from '@/admin/Vendors';
 import HomepageBuilder from '@/admin/HomepageBuilder';
 
 // ─── CMS Pages Placeholder ─────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ const AppLayout: React.FC = () => {
       case 'cms-pages': return <CMSPages />;
       case 'shipping': return <Shipping />;
       // Operations
-      case 'marketplace': return <Marketplace />;
+      case 'marketplace': return <Vendors />;
       // Platform
       case 'stores': return <StoreManagement />;
       case 'subscriptions': return <Subscriptions />;

@@ -11,14 +11,15 @@ interface StoreState {
 const StoreContext = createContext<StoreState | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<ThemeKey>(
-    () => (localStorage.getItem('mt_theme') as ThemeKey) || 'aurus',
-  );
+  // Always start on the live (Aurus) theme. The theme used to be persisted in
+  // localStorage, which stranded visitors on a demo theme's homepage (with no
+  // switcher to get back) after viewing a demo product. Not persisted any more.
+  const [theme, setTheme] = useState<ThemeKey>('aurus');
   const [wishlist, setWishlist] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('mt_wish') || '[]'); } catch { return []; }
   });
 
-  useEffect(() => { localStorage.setItem('mt_theme', theme); }, [theme]);
+  useEffect(() => { try { localStorage.removeItem('mt_theme'); } catch { /* storage unavailable */ } }, []);
   useEffect(() => { localStorage.setItem('mt_wish', JSON.stringify(wishlist)); }, [wishlist]);
 
   const toggleWishlist = (id: string) =>

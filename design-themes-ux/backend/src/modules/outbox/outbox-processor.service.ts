@@ -8,6 +8,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 // How long (ms) a PROCESSING event may be held before we assume the worker died.
 const STALE_PROCESSING_MS = 10 * 60 * 1000; // 10 minutes
 
+/**
+ * Delay before retry N of a failed event: 30s · 2^(N-1), capped at
+ * maxBackoffMinutes. Exported so handlers that record their own retry
+ * schedule (e.g. vendor order emails) report the time the processor will use.
+ */
+export function outboxBackoffMs(attempts: number, maxBackoffMinutes: number): number {
+  return Math.min(30 * Math.pow(2, attempts - 1), maxBackoffMinutes * 60) * 1000;
+}
+
 @Injectable()
 export class OutboxProcessorService {
   private readonly logger = new Logger(OutboxProcessorService.name);
@@ -129,10 +138,12 @@ export class OutboxProcessorService {
    * its UPDATE and bail out immediately, preventing double-processing.
    */
   async claimBatch(): Promise<string[]> {
+    // Prisma stores DateTime as UTC; NOW() is the DB server's local time, which on
+    // a non-UTC server made every backoff expire immediately. Compare in UTC.
     const candidates = await this.prisma.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM outbox_events
       WHERE status = 'PENDING'
-        AND nextRetryAt <= NOW()
+        AND nextRetryAt <= UTC_TIMESTAMP(3)
         AND attempts < maxAttempts
       ORDER BY nextRetryAt ASC
       LIMIT ${Prisma.raw(String(this.batchSize))}
@@ -180,10 +191,6 @@ export class OutboxProcessorService {
    * attempt=1 → 30s, attempt=2 → 60s, attempt=3 → 120s, ...
    */
   private computeNextRetry(attempts: number): Date {
-    const backoffSeconds = Math.min(
-      30 * Math.pow(2, attempts - 1),
-      this.maxBackoffMinutes * 60,
-    );
-    return new Date(Date.now() + backoffSeconds * 1000);
+    return new Date(Date.now() + outboxBackoffMs(attempts, this.maxBackoffMinutes));
   }
 }

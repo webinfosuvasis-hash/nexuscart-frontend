@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Package, MapPin, CreditCard, Truck, Loader2, AlertTriangle, Clock, ExternalLink, Ban,
+  ArrowLeft, Package, MapPin, CreditCard, Truck, Loader2, AlertTriangle, Clock, ExternalLink, Ban, FileText,
 } from 'lucide-react';
 import { inr } from '@/context/StoreContext';
 import { useOrderDetails } from '@/hooks/useCustomerOrders';
@@ -237,6 +237,18 @@ const AurusOrderDetails: React.FC = () => {
                 <p className="text-gray-400">No transaction details available.</p>
               )}
             </div>
+          </SectionCard>
+
+          <SectionCard icon={<FileText className="w-4 h-4 text-purple-600" />} title="Invoice">
+            <p className="text-[12.5px] text-gray-500 mb-3">
+              View, download, or print the tax invoice for this order.
+            </p>
+            <Link
+              to={`/account/orders/${order.id}/invoice`}
+              className="block text-[12.5px] font-semibold text-purple-700 hover:underline"
+            >
+              View Invoice →
+            </Link>
           </SectionCard>
 
           <SectionCard icon={<Truck className="w-4 h-4 text-purple-600" />} title="Shipment Information">

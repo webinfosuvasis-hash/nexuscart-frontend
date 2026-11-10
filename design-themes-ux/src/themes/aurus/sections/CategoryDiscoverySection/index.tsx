@@ -44,14 +44,14 @@ const DEFAULT: CategoryDiscoveryConfig = {
   giftIcon: '🎁',
   giftLabel: 'Gift Her Style',
   items: [
-    { label: 'WEDDING BANDS',       linkUrl: '/jewellery/rings',        customImage: '' },
-    { label: 'EVERYDAY PENDANTS',   linkUrl: '/jewellery/pendants',     customImage: '' },
-    { label: 'BESTSELLING STYLES',  linkUrl: '/jewellery/bestsellers',  customImage: '' },
-    { label: 'NEW STYLES FOR KIDS', linkUrl: '/jewellery/kids',         customImage: '' },
-    { label: 'DAILYWEAR HOOPS',     linkUrl: '/jewellery/earrings',     customImage: '' },
-    { label: 'NOSE PINS',           linkUrl: '/jewellery/nose-pins',    customImage: '' },
-    { label: 'GOLD RINGS',          linkUrl: '/jewellery/gold-rings',   customImage: '' },
-    { label: 'MANGALSUTRA',         linkUrl: '/jewellery/mangalsutra',  customImage: '' },
+    { label: 'WEDDING BANDS',       linkUrl: '/search?q=wedding',       customImage: '' },
+    { label: 'EVERYDAY PENDANTS',   linkUrl: '/search?q=pendants',     customImage: '' },
+    { label: 'BESTSELLING STYLES',  linkUrl: '/search?q=bestsellers',  customImage: '' },
+    { label: 'NEW STYLES FOR KIDS', linkUrl: '/search?q=kids',         customImage: '' },
+    { label: 'DAILYWEAR HOOPS',     linkUrl: '/search?q=earrings',     customImage: '' },
+    { label: 'NOSE PINS',           linkUrl: '/search?q=nose%20pins',    customImage: '' },
+    { label: 'GOLD RINGS',          linkUrl: '/search?q=gold%20rings',   customImage: '' },
+    { label: 'MANGALSUTRA',         linkUrl: '/search?q=mangalsutra',  customImage: '' },
   ],
 };
 

@@ -26,8 +26,9 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import AurusFooter from './AurusFooter';
 import { useStore, inr } from '@/context/StoreContext';
-import { PRODUCTS, CATEGORIES, HERO_IMAGES, THEME_META } from '@/data/products';
+import { PRODUCTS, CATEGORIES, HERO_IMAGES } from '@/data/products';
 import {
   MapPin, RotateCcw, Home, ChevronLeft, ChevronRight,
   Shield, Star, Video, Store, Phone,
@@ -131,7 +132,6 @@ const AurusHomeSections: React.FC<AurusHomeSectionsProps> = ({
 }) => {
   const products = PRODUCTS.aurus;
   const cats     = CATEGORIES.aurus;
-  const meta     = THEME_META.aurus;
   const heroImg  = HERO_IMAGES.aurus;
 
   // ── Carousel state ──────────────────────────────────────────────────────────
@@ -750,46 +750,7 @@ const AurusHomeSections: React.FC<AurusHomeSectionsProps> = ({
           Conditional: renders in full-page mode or when renderFooterAndCart=true.
           Skipped when renderOnly is set (individual section render mode).
       ════════════════════════════════════════════════════════════════════ */}
-      {showFooterAndCart && <footer className="bg-white border-t border-gray-200" style={UI}>
-        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-12 grid grid-cols-2 md:grid-cols-5 gap-8">
-          <div className="col-span-2 md:col-span-1">
-            <h4 className="text-xl font-bold text-gray-900 tracking-[0.12em]" style={SERIF}>{meta.brand.toUpperCase()}</h4>
-            <p className="text-[9px] text-gray-400 tracking-[0.25em] uppercase mt-0.5">Fine Jewellery</p>
-            <p className="text-gray-500 text-xs mt-3 leading-relaxed">{meta.tagline}</p>
-            <div className="flex gap-2 mt-5">
-              {['IG', 'FB', 'TW', 'YT', 'PT'].map(s => (
-                <a key={s} href="#" className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center text-[9px] font-bold text-gray-600 hover:bg-purple-700 hover:text-white transition-colors">{s}</a>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-4">
-              {['App Store', 'Google Play'].map(s => (
-                <a key={s} href="#" className="text-[10px] text-gray-600 border border-gray-300 rounded px-2.5 py-1.5 hover:border-purple-500 hover:text-purple-600 transition-colors">{s}</a>
-              ))}
-            </div>
-          </div>
-          {([
-            ['Jewellery', ['Rings', 'Earrings', 'Necklaces', 'Bracelets', 'Pendants', 'Bangles', 'Mangalsutra', 'Nose Pins']],
-            ['Collections', ['Latest Designs', 'Bestsellers', 'Diamond', 'Gold', 'Platinum', 'Gemstone', 'Solitaire', 'Rose Gold']],
-            ['Services', ['Try at Home', 'Video Consultation', 'Track Order', 'Return Policy', 'EMI Options', 'Gold Exchange', 'Gift Cards']],
-            ['Company', ['Our Story', 'Blog', 'Press', 'Stores', 'Careers', 'Contact Us', 'FAQ', 'Privacy Policy']],
-          ] as [string, string[]][]).map(([heading, links]) => (
-            <div key={heading}>
-              <h5 className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-900 mb-4">{heading}</h5>
-              <ul className="space-y-2">{links.map(l => (<li key={l}><a href="#" className="text-[12px] text-gray-500 hover:text-purple-700 transition-colors">{l}</a></li>))}</ul>
-            </div>
-          ))}
-        </div>
-        <div className="border-t border-gray-100 py-4 px-4 sm:px-6">
-          <div className="max-w-[1280px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-[11px] text-gray-400">© 2026 {meta.brand} – Fine Jewellery. All rights reserved.</p>
-            <div className="flex items-center gap-2">
-              {['Visa', 'Mastercard', 'UPI', 'GPay', 'PhonePe', 'NetBanking', 'EMI'].map(p => (
-                <span key={p} className="text-[10px] text-gray-500 border border-gray-200 rounded px-1.5 py-0.5 font-medium">{p}</span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </footer>}
+      {showFooterAndCart && <AurusFooter />}
 
       {/* CartDrawer is rendered globally in App.tsx — no per-page instance needed */}
     </>

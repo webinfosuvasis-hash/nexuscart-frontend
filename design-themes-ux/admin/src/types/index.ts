@@ -63,6 +63,8 @@ export interface Product {
   categoryId?: string;
   brand?: string;
   brandId?: string;
+  vendorId?: string | null;
+  vendor?: Pick<Vendor, 'id' | 'name' | 'status'> | null;
   stock: number;
   sku: string;
   barcode?: string;
@@ -163,6 +165,20 @@ export interface Warehouse {
   status: WarehouseStatus;
   manager?: string;
   phone?: string;
+}
+
+/** Marketplace seller a product can be assigned to (backend /vendors). */
+export type VendorStatus = 'ACTIVE' | 'INACTIVE';
+
+export interface Vendor {
+  id: string;
+  name: string;
+  email: string;
+  status: VendorStatus;
+  notifyOnOrder: boolean;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { products: number };
 }
 
 export interface Supplier {
@@ -301,6 +317,7 @@ export interface Address {
   postalCode: string;
   country: string;
   phone?: string;
+  email?: string;
   isDefault?: boolean;
 }
 

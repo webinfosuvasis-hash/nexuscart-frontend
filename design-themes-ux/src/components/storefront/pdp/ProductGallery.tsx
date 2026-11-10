@@ -39,12 +39,14 @@ const ProductGallery: React.FC<ProductGalleryProps> = ({ images, name, wished, o
           <>
             <button
               onClick={() => setActiveImg((i) => (i - 1 + safeImages.length) % safeImages.length)}
+              aria-label="Previous image"
               className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white shadow-md rounded-full p-2 transition-all"
             >
               <ChevronLeft className="w-4 h-4 text-gray-700" />
             </button>
             <button
               onClick={() => setActiveImg((i) => (i + 1) % safeImages.length)}
+              aria-label="Next image"
               className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white shadow-md rounded-full p-2 transition-all"
             >
               <ChevronRight className="w-4 h-4 text-gray-700" />
@@ -54,6 +56,8 @@ const ProductGallery: React.FC<ProductGalleryProps> = ({ images, name, wished, o
                 <button
                   key={i}
                   onClick={() => setActiveImg(i)}
+                  aria-label={`Show image ${i + 1} of ${safeImages.length}`}
+                  aria-current={i === current}
                   className={`w-1.5 h-1.5 rounded-full transition-all ${i === current ? 'bg-purple-700 w-4' : 'bg-gray-400/60'}`}
                 />
               ))}

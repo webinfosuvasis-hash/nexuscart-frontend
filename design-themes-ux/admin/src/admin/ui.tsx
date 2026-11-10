@@ -85,15 +85,16 @@ export const PageHeader: React.FC<{ title: string; subtitle?: string; action?: R
 
 export const Btn: React.FC<{
   children: React.ReactNode; onClick?: () => void; variant?: 'primary' | 'outline' | 'ghost';
-  className?: string; type?: 'button' | 'submit';
-}> = ({ children, onClick, variant = 'primary', className = '', type = 'button' }) => {
+  className?: string; type?: 'button' | 'submit'; disabled?: boolean;
+}> = ({ children, onClick, variant = 'primary', className = '', type = 'button', disabled = false }) => {
   const styles = {
     primary: 'bg-indigo-600 hover:bg-indigo-700 text-white',
     outline: 'border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200',
     ghost: 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300',
   };
   return (
-    <button type={type} onClick={onClick} className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${styles[variant]} ${className}`}>
+    <button type={type} onClick={onClick} disabled={disabled}
+      className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${styles[variant]} ${className}`}>
       {children}
     </button>
   );

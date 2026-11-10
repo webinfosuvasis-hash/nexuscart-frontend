@@ -18,8 +18,10 @@
  * request once.
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
-const STORE_ID = import.meta.env.VITE_STORE_ID || 'default';
+import { API_BASE_URL, STORE_ID as CONFIGURED_STORE_ID } from './env';
+
+const BASE_URL = API_BASE_URL;
+const STORE_ID = CONFIGURED_STORE_ID || 'default';
 const AUTH_BASE = `${BASE_URL}/customer/auth`;
 
 const REFRESH_TOKEN_STORAGE_KEY = 'aurus_customer_refresh_token';
@@ -215,6 +217,40 @@ async function authRequest<T>(path: string, options?: RequestInit): Promise<T> {
  */
 export async function authenticatedFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return authRequestUrl<T>(`${BASE_URL}${path}`, options);
+}
+
+/**
+ * Same access-token-attach + refresh-and-retry dance as authRequestUrl, for
+ * endpoints that return a raw binary body (e.g. invoice PDFs) instead of the
+ * usual `{ success, data, timestamp }` JSON envelope — those bypass
+ * TransformInterceptor server-side, so there's no `.data` to unwrap here either.
+ */
+export async function authenticatedFetchBlob(path: string, options?: RequestInit): Promise<Blob> {
+  const url = `${BASE_URL}${path}`;
+  const doFetch = () => fetch(url, {
+    ...options,
+    headers: buildHeaders({
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...(options?.headers as Record<string, string>),
+    }),
+  });
+
+  let res = await doFetch();
+  if (res.status === 401) {
+    await refreshOnce();
+    res = await doFetch();
+  }
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const body = await res.json() as { message?: string | string[] };
+      message = Array.isArray(body.message) ? body.message.join(', ') : (body.message ?? message);
+    } catch {
+      // non-JSON error body — fall back to statusText
+    }
+    throw new CustomerAuthApiError(res.status, message);
+  }
+  return res.blob();
 }
 
 // ─── Endpoints ────────────────────────────────────────────────────────────

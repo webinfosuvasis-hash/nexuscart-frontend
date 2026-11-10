@@ -35,7 +35,7 @@ export const DEFAULT_HERO_CONFIG: HeroConfig = {
       headlineL2Color: '#FEF08A',
       disclaimer:      'Shop stunning diamond designs with Extra ₹500/GM on Digital Gold',
       ctaText:         'READ MORE',
-      ctaUrl:          '/jewellery/diamonds',
+      ctaUrl:          '/search?q=diamonds',
     },
     {
       id:              'default-slide-3',
@@ -50,7 +50,7 @@ export const DEFAULT_HERO_CONFIG: HeroConfig = {
       headlineL2Color: '#FEF08A',
       disclaimer:      'Crafted in 925 silver – starting ₹5,000',
       ctaText:         'Shop Silver',
-      ctaUrl:          '/jewellery/silver',
+      ctaUrl:          '/search?q=silver',
     },
   ],
   autoRotate:      true,

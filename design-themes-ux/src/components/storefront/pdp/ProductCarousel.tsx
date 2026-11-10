@@ -53,11 +53,11 @@ const ProductCarousel: React.FC<ProductCarouselProps> = ({ title, products }) =>
                   </Link>
                   <div className="flex items-center gap-0.5 mt-1">
                     <StarRow r={p.rating} size={9} />
-                    <span className="text-[9px] text-gray-400 ml-0.5">({p.reviewCount})</span>
+                    <span className="text-[9px] text-gray-500 ml-0.5">({p.reviewCount})</span>
                   </div>
                   <div className="flex items-baseline gap-1 mt-1 flex-wrap">
                     <span className="text-[12px] font-bold text-gray-900" style={UI}>{inr(p.price)}</span>
-                    {p.mrp > p.price && <span className="text-[10px] text-gray-400 line-through">{inr(p.mrp)}</span>}
+                    {p.mrp > p.price && <span className="text-[10px] text-gray-500 line-through">{inr(p.mrp)}</span>}
                     {p.discount > 0 && <span className="text-[9px] font-bold text-emerald-700">{p.discount}% off</span>}
                   </div>
                 </div>

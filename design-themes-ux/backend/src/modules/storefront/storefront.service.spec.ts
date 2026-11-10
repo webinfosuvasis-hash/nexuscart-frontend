@@ -7,6 +7,7 @@ import { HeaderConfigService } from '@/modules/theme-engine/header-config/header
 import { FooterConfigService } from '@/modules/theme-engine/footer-config/footer-config.service';
 import { SectionsService }     from '@/modules/theme-engine/sections/sections.service';
 import { DefinitionsService }  from '@/modules/theme-engine/definitions/definitions.service';
+import { FeatureFlagService }  from '@/modules/content/feature-flag.service';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ const mockDefinitions  = {
   listSectionDefinitions: jest.fn(),
   listBlockDefinitions:   jest.fn(),
 };
+const mockFlags        = { get: jest.fn() };
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -85,12 +87,14 @@ describe('StorefrontService.buildDraftPageData()', () => {
         { provide: FooterConfigService, useValue: mockFooterConfig },
         { provide: SectionsService,     useValue: mockSections     },
         { provide: DefinitionsService,  useValue: mockDefinitions  },
+        { provide: FeatureFlagService,  useValue: mockFlags        },
       ],
     }).compile();
 
     service = module.get<StorefrontService>(StorefrontService);
 
     // Default happy-path mocks
+    mockFlags.get.mockResolvedValue(false); // legacy (non content-node) draft path
     mockCache.get.mockResolvedValue(null);
     mockCache.set.mockResolvedValue(undefined);
     mockThemeConfig.getDraft.mockResolvedValue(DRAFT_CONFIG_ROW);

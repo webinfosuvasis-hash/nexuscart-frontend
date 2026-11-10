@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/CustomerAuthContext';
 import { CustomerAuthApiError } from '@/lib/customerAuthApi';
+import { authPath, safeRedirect } from '@/lib/authRedirect';
 import {
-  AuthLayout, AuthField, AuthErrorBanner, AuthSubmitButton, SERIF,
+  AuthLayout, AuthField, AuthErrorBanner, AuthSubmitButton, GuestCheckoutReturn, SERIF,
 } from '@/components/auth/AuthLayout';
 
 const AurusLogin: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const redirect = safeRedirect(searchParams.get('redirect'));
   const { login } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -22,7 +24,6 @@ const AurusLogin: React.FC = () => {
     setIsSubmitting(true);
     try {
       await login({ email, password });
-      const redirect = searchParams.get('redirect') || '/';
       navigate(redirect, { replace: true });
     } catch (err) {
       setError(
@@ -39,6 +40,8 @@ const AurusLogin: React.FC = () => {
     <AuthLayout>
       <h1 className="text-[22px] font-bold text-gray-900 mb-1" style={SERIF}>Welcome back</h1>
       <p className="text-[13px] text-gray-500 mb-6">Log in to your Aurus account</p>
+
+      <GuestCheckoutReturn redirect={redirect} />
 
       {error && <AuthErrorBanner message={error} />}
 
@@ -73,7 +76,7 @@ const AurusLogin: React.FC = () => {
 
       <p className="text-[12.5px] text-gray-500 text-center mt-6">
         New to Aurus?{' '}
-        <Link to="/register" className="text-purple-700 font-semibold hover:underline">
+        <Link to={authPath('/register', redirect)} className="text-purple-700 font-semibold hover:underline">
           Create an account
         </Link>
       </p>

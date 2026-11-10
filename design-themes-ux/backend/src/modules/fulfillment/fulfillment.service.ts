@@ -6,7 +6,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentStatus } from '@prisma/client';
 import type { OrderItem } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService }       from '@/prisma/prisma.service';
@@ -427,6 +427,13 @@ export class FulfillmentService {
         await txClient.shipment.update({
           where: { id: shipmentId },
           data:  { status: SHIPMENT_STATUS.DELIVERED, deliveredAt: effectiveDeliveredAt },
+        });
+
+        // Cash on delivery is collected at the door: delivered means paid.
+        // No-op for prepaid orders (already PAID) and anything not PENDING.
+        await txClient.order.updateMany({
+          where: { id: orderId, paymentGatewayCode: 'cod', paymentStatus: PaymentStatus.PENDING },
+          data:  { paymentStatus: PaymentStatus.PAID },
         });
 
         // Record the status transition

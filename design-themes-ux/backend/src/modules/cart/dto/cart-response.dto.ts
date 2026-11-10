@@ -45,7 +45,7 @@ export interface CartDebugDto {
 export interface CartResponseDto {
   id:               string;
   storeId:          string;
-  sessionId:        string;
+  // No sessionId: it is the HttpOnly cookie's bearer value and must never reach page scripts.
   customerId:       string | null;
   status:           CartStatus;
   version:          number;

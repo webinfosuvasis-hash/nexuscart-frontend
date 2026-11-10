@@ -40,7 +40,7 @@ const DEFAULT: NewsletterConfig = {
   ctaButtonColor:   '#FFFFFF',
   ctaTextColor:     '#581C87',
   privacyText:      'By subscribing, you agree to our Privacy Policy',
-  privacyUrl:       '/privacy-policy',
+  privacyUrl:       '/pages/privacy-policy',
 };
 
 // ─── Config pipeline ──────────────────────────────────────────────────────────

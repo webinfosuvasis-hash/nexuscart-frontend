@@ -14,6 +14,7 @@ import {
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { InventoryReservationService } from '../../shared/inventory/inventory-reservation.service';
 import { PaymentOrchestratorService } from './payment-orchestrator.service';
 
 // ---------------------------------------------------------------------------
@@ -181,10 +182,10 @@ describe('PaymentOrchestratorService', () => {
     cart:                { findFirst: jest.Mock; updateMany: jest.Mock };
     coupon:              { findFirst: jest.Mock };
     inventoryReservation:{ findUnique: jest.Mock; updateMany: jest.Mock };
-    inventoryLevel:      { updateMany: jest.Mock };
     idempotencyRecord:   { create: jest.Mock };
     storeOrderCounter:   { upsert: jest.Mock; findUnique: jest.Mock };
     order:               { create: jest.Mock; findUnique: jest.Mock; findFirst: jest.Mock };
+    product:             { findMany: jest.Mock };
     orderItem:           { createMany: jest.Mock };
     orderStatusHistory:  { create: jest.Mock };
     orderSnapshot:       { create: jest.Mock };
@@ -192,17 +193,23 @@ describe('PaymentOrchestratorService', () => {
     $transaction:        jest.Mock;
   }>;
 
+  // Stock commit is InventoryReservationService's job (own spec covers holds,
+  // late deduction and idempotency); here we check the orchestrator calls it
+  // with the right payment/checkout/lines, before the order is created.
+  let reservations: { commitForPayment: jest.Mock };
+
   beforeEach(async () => {
+    reservations = { commitForPayment: jest.fn().mockResolvedValue(undefined) };
     prisma = {
       paymentTransaction:   { findFirst: jest.fn(), update: jest.fn() },
       checkoutSession:      { findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
       cart:                 { findFirst: jest.fn(), updateMany: jest.fn() },
       coupon:               { findFirst: jest.fn() },
       inventoryReservation: { findUnique: jest.fn(), updateMany: jest.fn() },
-      inventoryLevel:       { updateMany: jest.fn() },
       idempotencyRecord:    { create: jest.fn() },
       storeOrderCounter:    { upsert: jest.fn(), findUnique: jest.fn() },
       order:                { create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn() },
+      product:              { findMany: jest.fn().mockResolvedValue([]) },
       orderItem:            { createMany: jest.fn() },
       orderStatusHistory:   { create: jest.fn() },
       orderSnapshot:        { create: jest.fn() },
@@ -220,6 +227,7 @@ describe('PaymentOrchestratorService', () => {
         PaymentOrchestratorService,
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: configSvc },
+        { provide: InventoryReservationService, useValue: reservations },
       ],
     }).compile();
 
@@ -329,7 +337,7 @@ describe('PaymentOrchestratorService', () => {
 
   // ─── Inventory commit ─────────────────────────────────────────────────────
 
-  it('skips inventory commit when no reservation exists', async () => {
+  it('commits stock through the reservation service with the snapshot lines as fallback', async () => {
     prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx());
     prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout());
     prisma.cart.findFirst.mockResolvedValue(makeCart());
@@ -352,11 +360,17 @@ describe('PaymentOrchestratorService', () => {
     const result = await service.completePayment(TX_ID, STORE_ID);
 
     expect(result.recovered).toBe(false);
+    expect(reservations.commitForPayment).toHaveBeenCalledWith({
+      storeId:              STORE_ID,
+      checkoutId:           CHECKOUT_ID,
+      paymentTransactionId: TX_ID,
+      fallbackLines:        [{ productId: 'prod-1', variantId: null, quantity: 1 }],
+    });
+    // The orchestrator itself never writes stock rows.
     expect(prisma.inventoryReservation.updateMany).not.toHaveBeenCalled();
-    expect(prisma.inventoryLevel.updateMany).not.toHaveBeenCalled();
   });
 
-  it('skips inventory commit when reservation already COMMITTED', async () => {
+  it('delegates exactly once per completion (idempotency lives in the reservation service)', async () => {
     prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx());
     prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout());
     prisma.cart.findFirst.mockResolvedValue(makeCart());
@@ -380,8 +394,8 @@ describe('PaymentOrchestratorService', () => {
 
     await service.completePayment(TX_ID, STORE_ID);
 
+    expect(reservations.commitForPayment).toHaveBeenCalledTimes(1);
     expect(prisma.inventoryReservation.updateMany).not.toHaveBeenCalled();
-    expect(prisma.inventoryLevel.updateMany).not.toHaveBeenCalled();
   });
 
   // ─── Happy path ───────────────────────────────────────────────────────────
@@ -393,8 +407,6 @@ describe('PaymentOrchestratorService', () => {
     prisma.coupon.findFirst.mockResolvedValue(null);
     prisma.paymentTransaction.update.mockResolvedValue({});
     prisma.inventoryReservation.findUnique.mockResolvedValue(makeReservation());
-    prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
     prisma.idempotencyRecord.create.mockResolvedValue({});
     prisma.storeOrderCounter.upsert.mockResolvedValue({});
     prisma.storeOrderCounter.findUnique.mockResolvedValue({ storeId: STORE_ID, year: 2026, counter: 1 });
@@ -414,11 +426,10 @@ describe('PaymentOrchestratorService', () => {
     expect(result.orderId).toBe(ORDER_ID);
     expect(result.orderNumber).toBe('ORD-2026-000001');
 
-    // Inventory was committed
-    expect(prisma.inventoryReservation.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: InventoryReservationStatus.COMMITTED }) }),
-    );
-    expect(prisma.inventoryLevel.updateMany).toHaveBeenCalledTimes(1);
+    // Stock was committed before the order was written
+    expect(reservations.commitForPayment).toHaveBeenCalledTimes(1);
+    expect(reservations.commitForPayment.mock.invocationCallOrder[0])
+      .toBeLessThan(prisma.order.create.mock.invocationCallOrder[0]);
 
     // Order was created with correct fields
     expect(prisma.order.create).toHaveBeenCalledWith(
@@ -662,18 +673,17 @@ describe('PaymentOrchestratorService', () => {
     expect(orderArg.data.discount.toString()).toBe('100');
   });
 
-  // ─── Regression: P1-3 — inventory lower-bound guard ──────────────────────
+  // ─── Stock commit failure ────────────────────────────────────────────────
 
-  it('P1-3: logs error but completes payment when inventory lower-bound guard fires', async () => {
-    prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx());
+  it.each([
+    ['cod',      PaymentStatus.PENDING],
+    ['razorpay', PaymentStatus.PAID],
+  ])('a %s order is created with payment status %s (COD is collected on delivery)', async (gatewayCode, expected) => {
+    prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ gatewayCode }));
     prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout());
     prisma.cart.findFirst.mockResolvedValue(makeCart());
     prisma.coupon.findFirst.mockResolvedValue(null);
     prisma.paymentTransaction.update.mockResolvedValue({});
-    prisma.inventoryReservation.findUnique.mockResolvedValue(makeReservation());
-    prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 }); // reservation commits
-    // Lower-bound guard fires: onHand < quantity — returns count 0
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 0 });
     prisma.idempotencyRecord.create.mockResolvedValue({});
     prisma.storeOrderCounter.upsert.mockResolvedValue({});
     prisma.storeOrderCounter.findUnique.mockResolvedValue({ storeId: STORE_ID, year: 2026, counter: 1 });
@@ -687,26 +697,122 @@ describe('PaymentOrchestratorService', () => {
     prisma.outboxEvent.findFirst.mockResolvedValue(null);
     prisma.outboxEvent.create.mockResolvedValue({});
 
-    const logSpy = jest.spyOn(service['logger' as any], 'error').mockImplementation(() => {});
+    await service.completePayment(TX_ID, STORE_ID);
 
-    // Must NOT throw — lower-bound guard logs but does not block payment
-    const result = await service.completePayment(TX_ID, STORE_ID);
-    expect(result.orderId).toBe(ORDER_ID);
+    expect(prisma.order.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ paymentStatus: expected, paymentMethod: gatewayCode }),
+    }));
+  });
 
-    // logger.error must have been called with the guard message
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('lower-bound guard'));
+  it('creates no order when the stock commit fails — the error propagates for payment recovery to retry', async () => {
+    prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx());
+    prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout());
+    prisma.cart.findFirst.mockResolvedValue(makeCart());
+    prisma.coupon.findFirst.mockResolvedValue(null);
+    prisma.paymentTransaction.update.mockResolvedValue({});
+    reservations.commitForPayment.mockRejectedValue(new Error('deadlock'));
 
-    // Lower-bound WHERE conditions must be present in the updateMany call
-    expect(prisma.inventoryLevel.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          onHand:   { gte: 1 },
-          reserved: { gte: 1 },
-        }),
-      }),
-    );
+    await expect(service.completePayment(TX_ID, STORE_ID)).rejects.toThrow('deadlock');
+    expect(prisma.order.create).not.toHaveBeenCalled();
+  });
 
-    logSpy.mockRestore();
+  // ─── Vendor ownership snapshot on order lines ───────────────────────────
+
+  describe('vendor snapshot', () => {
+    const cartItem = (id: string, productId: string) => ({ ...makeCart().items[0], id, productId, sku: `SKU-${id}` });
+
+    function wireCompletion(gatewayCode: string, items = [cartItem('item-1', 'prod-1')]) {
+      prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ gatewayCode }));
+      prisma.checkoutSession.findFirst.mockResolvedValue(makeCheckout());
+      prisma.cart.findFirst.mockResolvedValue({ ...makeCart(), items });
+      prisma.coupon.findFirst.mockResolvedValue(null);
+      prisma.paymentTransaction.update.mockResolvedValue({});
+      prisma.idempotencyRecord.create.mockResolvedValue({});
+      prisma.storeOrderCounter.upsert.mockResolvedValue({});
+      prisma.storeOrderCounter.findUnique.mockResolvedValue({ storeId: STORE_ID, year: 2026, counter: 1 });
+      prisma.order.create.mockResolvedValue(makeOrder());
+      prisma.orderItem.createMany.mockResolvedValue({ count: items.length });
+      prisma.orderStatusHistory.create.mockResolvedValue({});
+      prisma.orderSnapshot.create.mockResolvedValue({});
+      prisma.checkoutSession.findUnique.mockResolvedValue({ cartId: CART_ID });
+      prisma.checkoutSession.updateMany.mockResolvedValue({ count: 1 });
+      prisma.cart.updateMany.mockResolvedValue({ count: 1 });
+      prisma.outboxEvent.findFirst.mockResolvedValue(null);
+      prisma.outboxEvent.create.mockResolvedValue({});
+    }
+    const writtenLines = () => prisma.orderItem.createMany.mock.calls[0][0].data as Array<Record<string, unknown>>;
+
+    it('freezes each line\'s vendor from the store-scoped product rows — mixed vendors and unassigned in one order', async () => {
+      wireCompletion('razorpay', [cartItem('i1', 'prod-a'), cartItem('i2', 'prod-b'), cartItem('i3', 'prod-own')]);
+      prisma.product.findMany.mockResolvedValue([
+        { id: 'prod-a', vendorId: 'vendor-1' },
+        { id: 'prod-b', vendorId: 'vendor-2' },
+        { id: 'prod-own', vendorId: null },
+      ]);
+
+      await service.completePayment(TX_ID, STORE_ID);
+
+      expect(prisma.product.findMany).toHaveBeenCalledWith({
+        where:  { id: { in: ['prod-a', 'prod-b', 'prod-own'] }, storeId: STORE_ID },
+        select: { id: true, vendorId: true },
+      });
+      expect(writtenLines().map((l) => [l.productId, l.vendorId])).toEqual([
+        ['prod-a', 'vendor-1'], ['prod-b', 'vendor-2'], ['prod-own', null],
+      ]);
+    });
+
+    it('a product not found in this store gets no vendor (never trusts anything but the store\'s own rows)', async () => {
+      wireCompletion('razorpay');
+      prisma.product.findMany.mockResolvedValue([]); // e.g. product belongs to another store
+
+      await service.completePayment(TX_ID, STORE_ID);
+      expect(writtenLines()[0].vendorId).toBeNull();
+    });
+
+    it('reads vendor ownership inside the order-creation transaction', async () => {
+      wireCompletion('razorpay');
+      prisma.product.findMany.mockResolvedValue([{ id: 'prod-1', vendorId: 'vendor-1' }]);
+
+      await service.completePayment(TX_ID, STORE_ID);
+
+      const [txStart] = prisma.idempotencyRecord.create.mock.invocationCallOrder;
+      const [read]    = prisma.product.findMany.mock.invocationCallOrder;
+      const [write]   = prisma.orderItem.createMany.mock.invocationCallOrder;
+      expect(txStart).toBeLessThan(read);
+      expect(read).toBeLessThan(write);
+    });
+
+    it.each([
+      ['cod',      PaymentStatus.PENDING],
+      ['razorpay', PaymentStatus.PAID],
+    ])('%s: snapshots the vendor and emits the canonical ORDER_CREATED event', async (gatewayCode, paymentStatus) => {
+      wireCompletion(gatewayCode);
+      prisma.product.findMany.mockResolvedValue([{ id: 'prod-1', vendorId: 'vendor-1' }]);
+
+      await service.completePayment(TX_ID, STORE_ID);
+
+      expect(writtenLines()[0].vendorId).toBe('vendor-1');
+      expect(prisma.order.create.mock.calls[0][0].data.paymentStatus).toBe(paymentStatus);
+      const created = (prisma.outboxEvent.create.mock.calls as any[]).find((c) => c[0].data.eventType === 'ORDER_CREATED');
+      expect(created[0].data.payload).toEqual(expect.objectContaining({ orderId: ORDER_ID, storeId: STORE_ID }));
+    });
+
+    it('payment recovery of an existing order re-ensures ORDER_CREATED but never rewrites the vendor snapshot', async () => {
+      prisma.paymentTransaction.findFirst.mockResolvedValue(makeTx({ orderId: ORDER_ID }));
+      prisma.order.findFirst.mockResolvedValue(makeOrder());
+      prisma.checkoutSession.findUnique.mockResolvedValue({ cartId: CART_ID });
+      prisma.checkoutSession.updateMany.mockResolvedValue({ count: 0 });
+      prisma.cart.updateMany.mockResolvedValue({ count: 0 });
+      prisma.outboxEvent.findFirst.mockResolvedValue(null); // event lost before — recovery writes it
+      prisma.outboxEvent.create.mockResolvedValue({});
+
+      await service.completePayment(TX_ID, STORE_ID);
+
+      expect(prisma.product.findMany).not.toHaveBeenCalled();
+      expect(prisma.orderItem.createMany).not.toHaveBeenCalled();
+      const types = (prisma.outboxEvent.create.mock.calls as any[]).map((c) => c[0].data.eventType);
+      expect(types).toContain('ORDER_CREATED');
+    });
   });
 });
 

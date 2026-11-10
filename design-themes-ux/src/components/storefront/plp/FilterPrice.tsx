@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UI } from '@/themes/aurus/constants';
 import { inr } from '@/context/StoreContext';
+import { FILTER_ACCENT, FILTER_HAIRLINE, FILTER_INK } from './filterTokens';
 import type { PriceFacet } from '@/lib/storefrontApi';
 
 interface FilterPriceProps {
@@ -22,15 +23,15 @@ const FilterPrice: React.FC<FilterPriceProps> = ({ facet, onApply }) => {
   if (boundMin >= boundMax) return null;
 
   return (
-    <div style={{ padding: '12px 0 16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 12, color: '#444', ...UI }}>{inr(localMin)}</span>
-        <span style={{ fontSize: 12, color: '#444', ...UI }}>{inr(localMax)}</span>
+    <div style={{ padding: '14px 0 18px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: FILTER_INK, ...UI }}>{inr(localMin)}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: FILTER_INK, ...UI }}>{inr(localMax)}</span>
       </div>
-      <div style={{ position: 'relative', height: 4, background: '#EEEEEE', borderRadius: 2, marginBottom: 14 }}>
+      <div style={{ position: 'relative', height: 3, background: FILTER_HAIRLINE, borderRadius: 2, marginBottom: 16 }}>
         <div
           style={{
-            position: 'absolute', height: 4, borderRadius: 2, background: '#7C3AED',
+            position: 'absolute', height: 3, borderRadius: 2, background: FILTER_ACCENT,
             left: `${((localMin - boundMin) / (boundMax - boundMin)) * 100}%`,
             right: `${100 - ((localMax - boundMin) / (boundMax - boundMin)) * 100}%`,
           }}
@@ -38,19 +39,21 @@ const FilterPrice: React.FC<FilterPriceProps> = ({ facet, onApply }) => {
       </div>
       <input
         type="range" min={boundMin} max={boundMax} value={localMin}
+        aria-label="Minimum price"
         onChange={(e) => setLocalMin(Math.min(Number(e.target.value), localMax - 1))}
         onMouseUp={() => onApply(localMin, localMax)}
         onTouchEnd={() => onApply(localMin, localMax)}
         className="w-full"
-        style={{ accentColor: '#7C3AED' }}
+        style={{ accentColor: FILTER_ACCENT }}
       />
       <input
         type="range" min={boundMin} max={boundMax} value={localMax}
+        aria-label="Maximum price"
         onChange={(e) => setLocalMax(Math.max(Number(e.target.value), localMin + 1))}
         onMouseUp={() => onApply(localMin, localMax)}
         onTouchEnd={() => onApply(localMin, localMax)}
         className="w-full"
-        style={{ accentColor: '#7C3AED' }}
+        style={{ accentColor: FILTER_ACCENT }}
       />
     </div>
   );

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { UI } from '@/themes/aurus/constants';
 import FilterGroup from './FilterGroup';
 import FilterPrice from './FilterPrice';
 import FilterColor from './FilterColor';
 import FilterSize from './FilterSize';
+import { FILTER_HAIRLINE, FILTER_INK, FILTER_SURFACE } from './filterTokens';
 import type { ProductFacets, FacetOption, PriceFacet } from '@/lib/storefrontApi';
 import type { UseFiltersResult } from '@/hooks/useFilters';
 
@@ -31,6 +32,7 @@ interface FilterSidebarProps {
 /** Composes all FilterGroup/FilterCheckbox/FilterPrice/FilterColor/FilterSize blocks into the left filter panel. */
 const FilterSidebar: React.FC<FilterSidebarProps> = ({ facets, filterState, hideCategory }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     category: true, brand: true, price: true, color: true, size: false,
   });
@@ -40,7 +42,7 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({ facets, filterState, hide
     return (
       <div style={{ paddingTop: 28 }}>
         {[...Array(5)].map((_, i) => (
-          <div key={i} style={{ height: 18, background: '#F3F3F3', borderRadius: 4, marginBottom: 14, width: `${60 + (i % 3) * 10}%` }} />
+          <div key={i} style={{ height: 18, background: FILTER_SURFACE, borderRadius: 4, marginBottom: 14, width: `${60 + (i % 3) * 10}%` }} />
         ))}
       </div>
     );
@@ -53,7 +55,17 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({ facets, filterState, hide
       {!hideCategory && (
         <FilterGroup
           label="Category" options={facets.category}
-          onToggle={(v) => navigate(`/category/${v}`)}
+          onToggle={(v) => {
+            // Category is a path segment, not a query param, so it needs an actual
+            // navigation — but every other facet preserves the rest of the active
+            // filters when it changes, so carry the current query string over too
+            // (minus `page`, matching the page-reset-on-filter-change behavior
+            // every other setter in useFilters already applies).
+            const params = new URLSearchParams(location.search);
+            params.delete('page');
+            const qs = params.toString();
+            navigate(`/category/${v}${qs ? `?${qs}` : ''}`);
+          }}
           open={!!openSections.category} onToggleOpen={() => toggleOpen('category')}
         />
       )}
@@ -70,35 +82,35 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({ facets, filterState, hide
         open={!!openSections.collection} onToggleOpen={() => toggleOpen('collection')} searchable
       />
 
-      <div style={{ borderBottom: '1px solid #F0F0F0' }}>
+      <div style={{ borderBottom: `1px solid ${FILTER_HAIRLINE}`, paddingTop: 3 }}>
         <button
           onClick={() => toggleOpen('price')}
-          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 0', background: 'none', border: 'none', cursor: 'pointer', ...UI }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '17px 0 0', background: 'none', border: 'none', cursor: 'pointer', ...UI }}
         >
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#222222', letterSpacing: '0.01em', ...UI }}>Price</span>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: FILTER_INK, letterSpacing: '0.06em', textTransform: 'uppercase', ...UI }}>Price</span>
         </button>
         {openSections.price && <FilterPrice facet={facets.price} onApply={filterState.setPriceRange} />}
       </div>
 
       {facets.color.length > 0 && (
-        <div style={{ borderBottom: '1px solid #F0F0F0' }}>
+        <div style={{ borderBottom: `1px solid ${FILTER_HAIRLINE}`, paddingTop: 3 }}>
           <button
             onClick={() => toggleOpen('color')}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 0', background: 'none', border: 'none', cursor: 'pointer', ...UI }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '17px 0 0', background: 'none', border: 'none', cursor: 'pointer', ...UI }}
           >
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#222222', letterSpacing: '0.01em', ...UI }}>Color</span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: FILTER_INK, letterSpacing: '0.06em', textTransform: 'uppercase', ...UI }}>Color</span>
           </button>
           {openSections.color && <FilterColor options={facets.color} onToggle={(v) => filterState.toggleMulti('color', v)} />}
         </div>
       )}
 
       {facets.size.length > 0 && (
-        <div style={{ borderBottom: '1px solid #F0F0F0' }}>
+        <div style={{ borderBottom: `1px solid ${FILTER_HAIRLINE}`, paddingTop: 3 }}>
           <button
             onClick={() => toggleOpen('size')}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 0', background: 'none', border: 'none', cursor: 'pointer', ...UI }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '17px 0 0', background: 'none', border: 'none', cursor: 'pointer', ...UI }}
           >
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#222222', letterSpacing: '0.01em', ...UI }}>Size</span>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: FILTER_INK, letterSpacing: '0.06em', textTransform: 'uppercase', ...UI }}>Size</span>
           </button>
           {openSections.size && <FilterSize options={facets.size} onToggle={(v) => filterState.toggleMulti('size', v)} />}
         </div>

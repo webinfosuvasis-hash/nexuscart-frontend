@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '@/context/CustomerAuthContext';
+import { safeRedirect } from '@/lib/authRedirect';
 
 export const AuthLoadingScreen: React.FC = () => (
   <div className="min-h-screen flex items-center justify-center bg-[#F5F3FA]">
@@ -40,7 +41,7 @@ export const GuestOnlyRoute: React.FC = () => {
   if (status === 'bootstrapping') return <AuthLoadingScreen />;
 
   if (status === 'authenticated') {
-    const redirect = new URLSearchParams(location.search).get('redirect') || '/';
+    const redirect = safeRedirect(new URLSearchParams(location.search).get('redirect'));
     return <Navigate to={redirect} replace />;
   }
 

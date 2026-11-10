@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import { StoreProvider } from "@/context/StoreContext";
 import { CartProvider, CartErrorBoundary } from "@/context/CartContext";
@@ -13,6 +13,7 @@ import { RegistryProvider } from "@/context/RegistryContext";
 import { CustomerAuthProvider } from "@/context/CustomerAuthContext";
 import { ProtectedRoute, GuestOnlyRoute } from "@/components/auth/ProtectedRoute";
 import CartDrawer from "@/components/CartDrawer";
+import { LEGACY_REDIRECTS } from "@/lib/legacyRedirects";
 
 const Index        = lazy(() => import("./pages/Index"));
 const ProductPage  = lazy(() => import("./pages/ProductPage"));
@@ -31,15 +32,18 @@ const OrderHistoryPage   = lazy(() => import("./pages/OrderHistoryPage"));
 const OrderDetailsPage   = lazy(() => import("./pages/OrderDetailsPage"));
 const ShipmentTrackingPage = lazy(() => import("./pages/ShipmentTrackingPage"));
 const CancellationPage = lazy(() => import("./pages/CancellationPage"));
+const InvoicePage = lazy(() => import("./pages/InvoicePage"));
+const CmsPage      = lazy(() => import("./pages/CmsPage"));
 const NotFound     = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-white">
     <div className="flex flex-col items-center gap-3">
       <div className="w-8 h-8 rounded-full border-2 border-purple-700 border-t-transparent animate-spin" />
-      <p className="text-[12px] text-gray-400" style={{ fontFamily: 'system-ui, sans-serif' }}>Loading…</p>
+      <p className="text-[12px] text-gray-500" style={{ fontFamily: 'system-ui, sans-serif' }}>Loading…</p>
     </div>
   </div>
 );
@@ -81,6 +85,8 @@ const App = () => (
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/checkout" element={<CheckoutPage />} />
                     <Route path="/registry" element={<RegistryPage />} />
+                    {/* CMS pages — the menu resolver emits /pages/:slug for CMS_PAGE links */}
+                    <Route path="/pages/:slug" element={<CmsPage />} />
 
                     {/* Auth — redirect away if already logged in */}
                     <Route element={<GuestOnlyRoute />}>
@@ -101,7 +107,12 @@ const App = () => (
                       <Route path="/account/orders/:orderId" element={<OrderDetailsPage />} />
                       <Route path="/account/orders/:orderId/tracking" element={<ShipmentTrackingPage />} />
                       <Route path="/account/orders/:orderId/cancel" element={<CancellationPage />} />
+                      <Route path="/account/orders/:orderId/invoice" element={<InvoicePage />} />
                     </Route>
+
+                    {Object.entries(LEGACY_REDIRECTS).map(([from, to]) => (
+                      <Route key={from} path={from} element={<Navigate to={to} replace />} />
+                    ))}
 
                     <Route path="*" element={<NotFound />} />
                   </Routes>

@@ -21,6 +21,7 @@ const SortDropdown: React.FC<SortDropdownProps> = ({ options, value, onChange })
       <select
         value={current?.value}
         onChange={(e) => onChange(e.target.value as SortOption)}
+        aria-label="Sort products"
         className="absolute inset-0 opacity-0 cursor-pointer w-full"
         style={UI}
       >

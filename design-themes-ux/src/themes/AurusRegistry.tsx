@@ -320,7 +320,7 @@ const AurusRegistry: React.FC = () => {
               <Share2 className="w-3.5 h-3.5"/> Share
             </button>
             <Link
-              to="/jewellery/rings"
+              to="/jewellery"
               className="flex items-center gap-1.5 border border-purple-300 text-purple-700 hover:bg-purple-50 px-4 py-2 rounded-full text-[12px] font-semibold transition-colors"
               style={UI}
             >
@@ -433,7 +433,7 @@ const AurusRegistry: React.FC = () => {
               Browse our collection and add items you love.
             </p>
             <Link
-              to="/jewellery/rings"
+              to="/jewellery"
               className="inline-block bg-purple-700 hover:bg-purple-800 text-white px-8 py-2.5 rounded-full text-[13px] font-bold transition-colors"
               style={UI}
             >
@@ -462,7 +462,7 @@ const AurusRegistry: React.FC = () => {
                 return (
                   <Link
                     key={key}
-                    to="/jewellery/rings"
+                    to="/jewellery"
                     className="flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-transparent hover:border-purple-200 transition-all"
                     style={{ background: occ.bg }}
                   >

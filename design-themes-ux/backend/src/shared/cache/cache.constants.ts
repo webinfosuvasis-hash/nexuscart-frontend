@@ -10,6 +10,8 @@ export const CACHE_TTL = {
   DEFINITIONS:   3600,     // 1 h    — block/section definitions are static
   ACTIVE_THEME:   300,     // 5 min  — active theme per store
   STORE_SETTINGS: 600,     // 10 min — store name, currency, logo
+  CATEGORY_TREE:  600,     // 10 min — category slugs/tree change rarely; explicitly invalidated on write anyway
+  STORE_CONTEXT:  600,     // 10 min — resolved {id,status} for StoreContextMiddleware; ACTIVE stores only, invalidated on write
 } as const;
 
 /** Redis key factories — single authoritative location for all cache key strings */
@@ -27,6 +29,10 @@ export const CACHE_KEYS = {
   // Header and Footer are not yet themeId-scoped (deferred to Sprint 6.5 / M5-M8)
   headerConfig: (storeId: string, status: 'draft' | 'published') =>
     `header:${storeId}:${status}`,
+
+  // ── Storefront Menu (Phase 9 — Dynamic Storefront Navigation) ───────────────
+  menu:         (storeId: string, handle: string) => `menu:${storeId}:${handle}`,
+  menuPattern:  (storeId: string) => `menu:${storeId}:*`,
 
   footerConfig: (storeId: string, status: 'draft' | 'published') =>
     `footer:${storeId}:${status}`,
@@ -52,6 +58,12 @@ export const CACHE_KEYS = {
   // ── Store / Theme Context ────────────────────────────────────────────────────
   activeTheme:    (storeId: string) => `active-theme:${storeId}`,  // NEW in Sprint 4.5
   storeSettings:  (storeId: string) => `store:${storeId}:settings`,// NEW in Sprint 4.5
+
+  // ── Category Tree (storefront product listing perf) ─────────────────────────
+  categoryTree:   (storeId: string) => `category-tree:${storeId}`,
+
+  // ── Store Context (StoreContextMiddleware perf) ──────────────────────────────
+  storeContext:   (storeId: string) => `store-context:${storeId}`,
 
   // ── Block cache (Sprint 4.5.1) ───────────────────────────────────────────────
   // Blocks are embedded in the page sections cache (pageSections key above).

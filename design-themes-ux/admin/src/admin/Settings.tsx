@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Store, Globe, Users, CreditCard, Key, Webhook, Shield, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, PageHeader, Btn, Badge } from './ui';
+import { useStoreCurrency } from '@/hooks/useStoreCurrency';
 
 const Settings: React.FC = () => {
   const [tab, setTab] = useState('store');
+  const currency = useStoreCurrency();
   const tabs = [
     ['store', 'Store Profile', Store], ['domain', 'Custom Domain', Globe],
     ['staff', 'Staff & Roles', Users], ['billing', 'Plan & Billing', CreditCard],
@@ -27,8 +29,8 @@ const Settings: React.FC = () => {
           {tab === 'store' && (
             <div className="space-y-4 max-w-lg">
               <h3 className="font-bold text-slate-900 dark:text-white">Store Profile</h3>
-              {[['Store Name', 'NexusCart'], ['Support Email', 'support@nexuscart.com'], ['Currency', 'USD ($)']].map(([l, v]) => (
-                <div key={l}><label className="text-sm font-medium text-slate-700 dark:text-slate-300">{l}</label><input defaultValue={v} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white" /></div>
+              {[['Store Name', 'NexusCart'], ['Support Email', 'support@nexuscart.com'], ['Currency', currency]].map(([l, v]) => (
+                <div key={`${l}:${v}`}><label className="text-sm font-medium text-slate-700 dark:text-slate-300">{l}</label><input defaultValue={v} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white" /></div>
               ))}
               <Btn onClick={() => toast.success('Settings saved')}><Save size={16} /> Save Changes</Btn>
             </div>

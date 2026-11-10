@@ -135,7 +135,7 @@ const FeaturedProductsSection: React.FC<SectionComponentProps<FeaturedProductsCo
               <div className="mt-3 pr-1">
                 <div className="flex items-baseline gap-2 flex-wrap">
                   <span className="text-[14px] font-bold text-gray-900" style={UI}>{inr(p.price)}</span>
-                  <span className="text-[11px] text-gray-400 line-through">{inr(p.mrp)}</span>
+                  <span className="text-[11px] text-gray-500 line-through">{inr(p.mrp)}</span>
                 </div>
                 <p className="text-[12px] text-gray-600 mt-0.5 leading-tight line-clamp-2" style={UI}>{p.name}</p>
               </div>

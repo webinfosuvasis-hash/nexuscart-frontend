@@ -1,10 +1,21 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { CacheService } from '@/shared/cache/cache.service';
+import { CACHE_KEYS } from '@/shared/cache/cache.constants';
 import slugify from 'slugify';
 
 @Injectable()
 export class CategoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache:  CacheService,
+  ) {}
+
+  /** Storefront's category-tree cache (slug resolution, descendant lookup, breadcrumbs) is
+   *  keyed per store and must be dropped on any write — see loadCategoryTree in category-tree.util.ts. */
+  private invalidateTree(storeId: string) {
+    return this.cache.del(CACHE_KEYS.categoryTree(storeId));
+  }
 
   // ─── Build infinite-depth tree from flat list ────────────────────────────────
   private buildTree(flat: any[]): any[] {
@@ -60,9 +71,11 @@ export class CategoriesService {
     const existing = await this.prisma.category.findFirst({ where: { storeId, slug } });
     if (existing) throw new ConflictException('Category slug already exists');
 
-    return this.prisma.category.create({
+    const created = await this.prisma.category.create({
       data: { ...dto, slug, storeId },
     });
+    await this.invalidateTree(storeId);
+    return created;
   }
 
   async update(storeId: string, id: string, dto: any) {
@@ -70,7 +83,9 @@ export class CategoriesService {
     if (dto.name && !dto.slug) {
       dto.slug = slugify(dto.name, { lower: true, strict: true });
     }
-    return this.prisma.category.update({ where: { id }, data: { ...dto, updatedAt: new Date() } });
+    const updated = await this.prisma.category.update({ where: { id }, data: { ...dto, updatedAt: new Date() } });
+    await this.invalidateTree(storeId);
+    return updated;
   }
 
   async remove(storeId: string, id: string) {
@@ -82,6 +97,7 @@ export class CategoriesService {
       });
     }
     await this.prisma.category.update({ where: { id }, data: { deletedAt: new Date() } });
+    await this.invalidateTree(storeId);
     return { message: 'Category deleted' };
   }
 
@@ -110,6 +126,7 @@ export class CategoriesService {
       where: { id: { in: ids }, storeId },
       data: { parentId: newParentId },
     });
+    await this.invalidateTree(storeId);
     return { message: `${ids.length} categories moved` };
   }
 
@@ -139,6 +156,7 @@ export class CategoriesService {
       data: { deletedAt: new Date() },
     });
 
+    await this.invalidateTree(storeId);
     return { message: `${sourceIds.length} categories merged into "${target.name}"` };
   }
 

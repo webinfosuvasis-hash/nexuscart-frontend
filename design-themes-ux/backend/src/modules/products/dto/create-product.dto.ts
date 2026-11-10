@@ -1,6 +1,6 @@
 import {
   IsString, IsNumber, IsOptional, IsBoolean, IsArray, IsEnum,
-  IsInt, Min, IsPositive, ValidateNested,
+  IsInt, Min, IsPositive, ValidateNested, MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -118,6 +118,12 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   categoryId?: string;
+
+  @ApiPropertyOptional({ description: 'Vendor (marketplace seller) in this store; null unassigns', nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  vendorId?: string | null;
 
   @ApiPropertyOptional({ example: ['cotton', 'summer'] })
   @IsOptional()

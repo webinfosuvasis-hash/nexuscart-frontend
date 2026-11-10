@@ -37,18 +37,18 @@ export interface CollectionsData {
 }
 
 const DEFAULT_SLOTS: CollectionSlot[] = [
-  { id: '1', customName: 'दश्ता',    customSubLabel: 'Heritage Edit',              customImage: '', linkUrl: '/collections/dashta'    },
-  { id: '2', customName: 'Leher',    customSubLabel: 'The dance of waves',         customImage: '', linkUrl: '/collections/leher'     },
-  { id: '3', customName: 'Adaa',     customSubLabel: 'BY AURUS',                   customImage: '', linkUrl: '/collections/adaa'      },
-  { id: '4', customName: 'aneka',    customSubLabel: 'MANY FORMS, ONE ESSENCE',    customImage: '', linkUrl: '/collections/aneka'     },
-  { id: '5', customName: 'Eternity', customSubLabel: 'Luxury, woven in brilliance',customImage: '', linkUrl: '/collections/eternity'  },
+  { id: '1', customName: 'दश्ता',    customSubLabel: 'Heritage Edit',              customImage: '', linkUrl: '/search?q=heritage'    },
+  { id: '2', customName: 'Leher',    customSubLabel: 'The dance of waves',         customImage: '', linkUrl: '/collection/new-arrivals'     },
+  { id: '3', customName: 'Adaa',     customSubLabel: 'BY AURUS',                   customImage: '', linkUrl: '/brand/aurus'      },
+  { id: '4', customName: 'aneka',    customSubLabel: 'MANY FORMS, ONE ESSENCE',    customImage: '', linkUrl: '/jewellery'     },
+  { id: '5', customName: 'Eternity', customSubLabel: 'Luxury, woven in brilliance',customImage: '', linkUrl: '/search?q=silk'  },
 ];
 
 const DEFAULT: CollectionsConfig = {
   backgroundColor: '#EDE9FE',
   heading:         'Aurus Collections',
   ctaText:         'VIEW ALL COLLECTIONS',
-  ctaUrl:          '/collections',
+  ctaUrl:          '/jewellery',
   ctaButtonColor:  '#7C3AED',
   slots:           DEFAULT_SLOTS,
 };

@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { randomUUID } from 'crypto';
-import { CheckoutSession, CheckoutStatus, PaymentTransaction, PaymentTxStatus } from '@prisma/client';
+import { AddressType, CheckoutSession, CheckoutStatus, PaymentTransaction, PaymentTxStatus } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CheckoutService } from '@/modules/checkout/checkout.service';
 import { PaymentService } from '@/modules/payment/payment.service';
@@ -11,11 +11,12 @@ import { PaymentOrchestratorService } from '@/modules/payment-orchestrator/payme
 import { PaymentGatewayRegistry } from '@/modules/payment/gateways/payment-gateway-registry.service';
 import { StartPaymentResult } from '@/modules/payment/dto/payment-service.types';
 import { AuthenticatedCustomer } from '@/modules/customer-auth/types/customer-auth.types';
-import { InitiatePaymentDto } from './dto/initiate-payment.dto';
+import { CUSTOMER_GATEWAY_CODES, InitiatePaymentDto } from './dto/initiate-payment.dto';
 import {
   PaymentDetailResponseDto, PaymentInitiationResponseDto, PaymentStatusResponseDto,
 } from './dto/payment-response.dto';
 import { mapPaymentException } from './customer-payment-exception.mapper';
+import { InventoryReservationService, StockLine } from '@/shared/inventory/inventory-reservation.service';
 
 const NON_PAYABLE_CHECKOUT_STATUSES = new Set<CheckoutStatus>([
   CheckoutStatus.CANCELLED,
@@ -29,6 +30,23 @@ const NON_PAYABLE_CHECKOUT_STATUSES = new Set<CheckoutStatus>([
 // "Pay Now" and network retries collapse onto the same PaymentTransaction,
 // without this controller needing to implement that itself.
 const INITIATE_IDEMPOTENCY_KEY = 'initiate';
+
+// A stock hold never lapses sooner than this after Pay is pressed, even when
+// the checkout itself is about to expire — the payment needs time to settle.
+const MIN_HOLD_MS = 15 * 60_000;
+
+const holdExpiry = (checkoutExpiresAt: Date | string): Date =>
+  new Date(Math.max(new Date(checkoutExpiresAt).getTime(), Date.now() + MIN_HOLD_MS));
+
+const toStockLines = (items: { productId: string; variantId: string | null; quantity: number }[]): StockLine[] =>
+  items.map((i) => ({ productId: i.productId, variantId: i.variantId ?? null, quantity: i.quantity }));
+
+/** Who the gateway is told is paying — an account holder, or a guest's checkout address. */
+interface PayerInfo {
+  storeId: string;
+  email: string;
+  name: string;
+}
 
 /**
  * Customer Payment API — thin orchestration over CheckoutService,
@@ -47,6 +65,7 @@ export class CustomerPaymentService {
     private readonly paymentService: PaymentService,
     private readonly orchestrator: PaymentOrchestratorService,
     private readonly gatewayRegistry: PaymentGatewayRegistry,
+    private readonly reservations: InventoryReservationService,
   ) {}
 
   async initiatePayment(
@@ -55,12 +74,68 @@ export class CustomerPaymentService {
     dto: InitiatePaymentDto,
     req: Request,
   ): Promise<PaymentInitiationResponseDto> {
-    const checkout = await this.claimAndAssertOwnership(checkoutId, customer);
+    const checkout = await this.claimAndAssertOwnership(checkoutId, customer, req);
+    return this.startCheckoutPayment(checkout, {
+      storeId: customer.storeId, email: customer.email, name: customer.name,
+    }, dto);
+  }
+
+  async retryPayment(paymentId: string, customer: AuthenticatedCustomer): Promise<PaymentInitiationResponseDto> {
+    const tx = await this.loadOwnedTransaction(paymentId, customer);
+    return this.retryTransaction(tx, { storeId: customer.storeId, email: customer.email, name: customer.name });
+  }
+
+  async getPaymentStatus(paymentId: string, customer: AuthenticatedCustomer): Promise<PaymentStatusResponseDto> {
+    const tx = await this.loadOwnedTransaction(paymentId, customer);
+    return { id: tx.id, status: tx.status, orderId: tx.orderId, orderNumber: await this.orderNumberFor(tx) };
+  }
+
+  // ─── Guest checkout ─────────────────────────────────────────────────────
+  //
+  // Same payment pipeline, different ownership proof: a guest has no token,
+  // so the checkout must belong to the caller's own cart-session cookie
+  // (`req.cartSessionId`, set by CartSessionMiddleware, the same cookie the
+  // checkout was started with) and must not already be claimed by an
+  // account. Gateway customer details come from the checkout's shipping
+  // address, which is why a guest address must carry an email.
+
+  async initiateGuestPayment(checkoutId: string, dto: InitiatePaymentDto, req: Request): Promise<PaymentInitiationResponseDto> {
+    const guest = this.guestContext(req);
+    const checkout = await this.prisma.checkoutSession.findFirst({
+      where: { id: checkoutId, storeId: guest.storeId, sessionId: guest.sessionId, customerId: null },
+    });
+    if (!checkout) {
+      throw new NotFoundException('Checkout session not found');
+    }
+    const payer = await this.resolveGuestPayer(checkout.id, guest.storeId);
+    return this.startCheckoutPayment(checkout, payer, dto);
+  }
+
+  async retryGuestPayment(paymentId: string, req: Request): Promise<PaymentInitiationResponseDto> {
+    const guest = this.guestContext(req);
+    const tx = await this.loadGuestTransaction(paymentId, guest);
+    const payer = await this.resolveGuestPayer(tx.checkoutSessionId, guest.storeId);
+    return this.retryTransaction(tx, payer);
+  }
+
+  async getGuestPaymentStatus(paymentId: string, req: Request): Promise<PaymentStatusResponseDto> {
+    const tx = await this.loadGuestTransaction(paymentId, this.guestContext(req));
+    return { id: tx.id, status: tx.status, orderId: tx.orderId, orderNumber: await this.orderNumberFor(tx) };
+  }
+
+  // ─── Shared payment pipeline ────────────────────────────────────────────
+
+  private async startCheckoutPayment(
+    checkout: CheckoutSession,
+    payer: PayerInfo,
+    dto: InitiatePaymentDto,
+  ): Promise<PaymentInitiationResponseDto> {
+    const checkoutId = checkout.id;
     this.assertPayable(checkout);
 
     // Live-recomputed by CheckoutEngineService via CheckoutService — never
     // re-derived here, so pricing/validation logic is never duplicated.
-    const summary = await this.checkoutService.getSummary(checkoutId, req);
+    const summary = await this.checkoutService.getSummaryForVerifiedOwner(checkoutId, payer.storeId);
     if (!summary.validation.isValid) {
       throw new BadRequestException({
         message: 'Checkout is not valid for payment',
@@ -68,9 +143,14 @@ export class CustomerPaymentService {
       });
     }
 
-    const gatewayCode = dto.gatewayCode ?? await this.resolveDefaultGateway(customer.storeId);
+    const gatewayCode = dto.gatewayCode ?? await this.resolveDefaultGateway(payer.storeId);
+    // Re-checked after the store default is resolved: a store whose default is
+    // the internal 'mock' gateway must not let shoppers create instantly-"paid" orders.
+    if (!(CUSTOMER_GATEWAY_CODES as readonly string[]).includes(gatewayCode)) {
+      throw new BadRequestException(`Payment method '${gatewayCode}' is not available for this store`);
+    }
     const method = await this.prisma.storePaymentMethod.findFirst({
-      where: { storeId: customer.storeId, gatewayCode, isActive: true },
+      where: { storeId: payer.storeId, gatewayCode, isActive: true },
     });
     if (!method) {
       throw new BadRequestException(`Payment method '${gatewayCode}' is not available for this store`);
@@ -78,56 +158,84 @@ export class CustomerPaymentService {
 
     const amountInPaise = Math.round(summary.totals.grandTotal * 100);
 
-    let startResult: StartPaymentResult;
+    let tx: PaymentTransaction;
     try {
-      const tx = await this.paymentService.createPaymentAttempt({
+      tx = await this.paymentService.createPaymentAttempt({
         checkoutSessionId: checkoutId,
-        storeId: customer.storeId,
+        storeId: payer.storeId,
         gatewayCode,
         amountInPaise,
         currency: summary.totals.currencyCode,
         paymentMethodId: method.id,
         idempotencyKey: INITIATE_IDEMPOTENCY_KEY,
       });
+    } catch (err) {
+      throw mapPaymentException(err);
+    }
 
+    // Take the units out of stock before the gateway is involved — all lines
+    // or none, 409 if another shopper got there first. Idempotent for the
+    // same attempt (double-click / network retry). Deliberately not released
+    // if the gateway start below fails: a concurrent duplicate request can
+    // fail there while the first succeeds, so the hold is left to the retry
+    // (which moves it) or to expiry (InventoryCleanupService).
+    await this.reservations.reserveForPayment({
+      storeId: payer.storeId,
+      checkoutId,
+      paymentTransactionId: tx.id,
+      lines: toStockLines(summary.items),
+      expiresAt: holdExpiry(checkout.expiresAt),
+    });
+
+    let startResult: StartPaymentResult;
+    try {
       startResult = await this.paymentService.startPayment(
         tx.id,
-        customer.storeId,
+        payer.storeId,
         randomUUID(),
-        { email: customer.email, name: customer.name },
+        { email: payer.email, name: payer.name },
       );
     } catch (err) {
       throw mapPaymentException(err);
     }
 
     await this.markPaymentInitiated(checkoutId);
-    const finalTx = await this.driveDirectCaptureIfApplicable(startResult, customer.storeId);
+    const finalTx = await this.driveDirectCaptureIfApplicable(startResult, payer.storeId);
 
-    return this.toInitiationResponse(finalTx, startResult);
+    return this.toInitiationResponse(finalTx, startResult, await this.orderNumberFor(finalTx));
   }
 
-  async retryPayment(paymentId: string, customer: AuthenticatedCustomer): Promise<PaymentInitiationResponseDto> {
-    const tx = await this.loadOwnedTransaction(paymentId, customer);
+  private async retryTransaction(tx: PaymentTransaction, payer: PayerInfo): Promise<PaymentInitiationResponseDto> {
+    // The failed attempt's hold may have lapsed meanwhile — re-take it (409
+    // if the stock is gone) before asking the gateway for a new attempt.
+    if (!(await this.reservations.hasLiveHold(tx.id))) {
+      const summary = await this.checkoutService.getSummaryForVerifiedOwner(tx.checkoutSessionId, payer.storeId);
+      await this.reservations.reserveForPayment({
+        storeId: payer.storeId,
+        checkoutId: tx.checkoutSessionId,
+        paymentTransactionId: tx.id,
+        lines: toStockLines(summary.items),
+        expiresAt: holdExpiry(summary.expiresAt),
+      });
+    }
 
     let result: StartPaymentResult;
     try {
       result = await this.paymentService.retryPayment({
         transactionId: tx.id,
-        storeId: customer.storeId,
+        storeId: payer.storeId,
         idempotencyKey: randomUUID(),
-        customerInfo: { email: customer.email, name: customer.name },
+        customerInfo: { email: payer.email, name: payer.name },
       });
     } catch (err) {
       throw mapPaymentException(err);
     }
 
-    const finalTx = await this.driveDirectCaptureIfApplicable(result, customer.storeId);
-    return this.toInitiationResponse(finalTx, result);
-  }
+    // One hold per checkout: it follows the newest attempt rather than being taken twice.
+    await this.reservations.transferToPayment(tx.id, result.transaction.id);
 
-  async getPaymentStatus(paymentId: string, customer: AuthenticatedCustomer): Promise<PaymentStatusResponseDto> {
-    const tx = await this.loadOwnedTransaction(paymentId, customer);
-    return { id: tx.id, status: tx.status, orderId: tx.orderId };
+    const finalTx = await this.driveDirectCaptureIfApplicable(result, payer.storeId);
+    return this.toInitiationResponse(finalTx, result, await this.orderNumberFor(finalTx));
   }
 
   async getPaymentDetails(paymentId: string, customer: AuthenticatedCustomer): Promise<PaymentDetailResponseDto> {
@@ -164,8 +272,17 @@ export class CustomerPaymentService {
    * "attach to my account at checkout time" pattern most storefronts use.
    * A checkout already claimed by a *different* customer 404s (never a 403,
    * so cross-tenant existence is never revealed).
+   *
+   * Claiming requires the cart-session cookie the checkout was started with:
+   * otherwise any signed-in customer who learned a guest's checkout id could
+   * take it over (and lock the guest out of paying). The storefront sends
+   * that cookie on this call (credentials: 'include').
    */
-  private async claimAndAssertOwnership(checkoutId: string, customer: AuthenticatedCustomer): Promise<CheckoutSession> {
+  private async claimAndAssertOwnership(
+    checkoutId: string,
+    customer: AuthenticatedCustomer,
+    req: Request,
+  ): Promise<CheckoutSession> {
     const checkout = await this.prisma.checkoutSession.findFirst({
       where: { id: checkoutId, storeId: customer.storeId },
     });
@@ -176,6 +293,9 @@ export class CustomerPaymentService {
       throw new NotFoundException('Checkout session not found');
     }
     if (!checkout.customerId) {
+      if (!req.cartSessionId || checkout.sessionId !== req.cartSessionId) {
+        throw new NotFoundException('Checkout session not found');
+      }
       return this.prisma.checkoutSession.update({
         where: { id: checkoutId },
         data: { customerId: customer.id },
@@ -211,6 +331,54 @@ export class CustomerPaymentService {
     }
 
     return tx;
+  }
+
+  /** A request with no cart-session cookie can't own any guest checkout — 404, same as a foreign one. */
+  private guestContext(req: Request): { storeId: string; sessionId: string } {
+    if (!req.cartSessionId) {
+      throw new NotFoundException('Checkout session not found');
+    }
+    // Same store resolution CheckoutService uses, so a guest can only ever
+    // pay a checkout their own requests could have started.
+    return { storeId: req.storeId ?? 'default', sessionId: req.cartSessionId };
+  }
+
+  /** Guest counterpart of loadOwnedTransaction — owned via the cart-session cookie, never via an account. */
+  private async loadGuestTransaction(
+    paymentId: string,
+    guest: { storeId: string; sessionId: string },
+  ): Promise<PaymentTransaction> {
+    const tx = await this.prisma.paymentTransaction.findFirst({
+      where: { id: paymentId, storeId: guest.storeId },
+    });
+    if (!tx) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    const ownedCheckout = await this.prisma.checkoutSession.findFirst({
+      where: { id: tx.checkoutSessionId, storeId: guest.storeId, sessionId: guest.sessionId, customerId: null },
+      select: { id: true },
+    });
+    if (!ownedCheckout) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    return tx;
+  }
+
+  private async resolveGuestPayer(checkoutId: string, storeId: string): Promise<PayerInfo> {
+    const address = await this.prisma.checkoutAddressSnapshot.findFirst({
+      where: { checkoutId, type: AddressType.SHIPPING },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!address?.email) {
+      throw new BadRequestException('An email address is required to check out as a guest');
+    }
+    return {
+      storeId,
+      email: address.email,
+      name: `${address.firstName} ${address.lastName}`.trim(),
+    };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
@@ -266,7 +434,21 @@ export class CustomerPaymentService {
     }
   }
 
-  private toInitiationResponse(tx: PaymentTransaction, startResult: StartPaymentResult): PaymentInitiationResponseDto {
+  /** The customer-facing number for the order this payment produced, if any. */
+  private async orderNumberFor(tx: PaymentTransaction): Promise<string | null> {
+    if (!tx.orderId) return null;
+    const order = await this.prisma.order.findFirst({
+      where:  { id: tx.orderId, storeId: tx.storeId },
+      select: { orderNumber: true },
+    });
+    return order?.orderNumber ?? null;
+  }
+
+  private toInitiationResponse(
+    tx: PaymentTransaction,
+    startResult: StartPaymentResult,
+    orderNumber: string | null,
+  ): PaymentInitiationResponseDto {
     return {
       paymentId: tx.id,
       status: tx.status,
@@ -277,6 +459,7 @@ export class CustomerPaymentService {
       clientSecret: startResult.clientSecret,
       gatewayOrderId: tx.gatewayOrderId ?? undefined,
       orderId: tx.orderId,
+      orderNumber,
     };
   }
 }

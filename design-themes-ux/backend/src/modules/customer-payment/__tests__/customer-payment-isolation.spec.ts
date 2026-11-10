@@ -21,6 +21,7 @@ const CUSTOMER_A2 = { id: 'cust_a2', storeId: STORE_A, email: 'amit@example.com'
 const CUSTOMER_B = { id: 'cust_b', storeId: STORE_B, email: 'bob@example.com', name: 'Bob', isActive: true };
 
 const CHECKOUT_A = 'checkout_a';
+const SESSION_A = 'a'.repeat(32);
 const CHECKOUT_A2 = 'checkout_a2';
 const CHECKOUT_B = 'checkout_b';
 const PAYMENT_A = 'pay_a';
@@ -50,7 +51,7 @@ async function resolvePrincipal(customersById: Record<string, any>, customerId: 
 function buildHarness() {
   const checkouts: Record<string, any> = {
     [CHECKOUT_A]: {
-      id: CHECKOUT_A, storeId: STORE_A, customerId: null, status: CheckoutStatus.VALIDATED,
+      id: CHECKOUT_A, storeId: STORE_A, customerId: null, status: CheckoutStatus.VALIDATED, sessionId: SESSION_A,
       expiresAt: new Date(Date.now() + 60 * 60_000),
     },
     [CHECKOUT_A2]: {
@@ -115,12 +116,15 @@ function buildHarness() {
     },
     storePaymentMethod: { findFirst: jest.fn().mockResolvedValue({ id: 'method_1' }) },
     storePaymentConfig: { findUnique: jest.fn().mockResolvedValue({ defaultGateway: 'razorpay' }) },
+    order: { findFirst: jest.fn().mockResolvedValue(null) },
   } as any;
 
   const checkoutService = {
-    getSummary: jest.fn().mockResolvedValue({
+    getSummaryForVerifiedOwner: jest.fn().mockResolvedValue({
       validation: { isValid: true, hasBlockers: false, issues: [] },
       totals: { grandTotal: 100, currencyCode: 'INR' },
+      items: [{ productId: 'prod_1', variantId: null, quantity: 1 }],
+      expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
     }),
   } as any;
 
@@ -135,7 +139,13 @@ function buildHarness() {
   const orchestrator = { completePayment: jest.fn() } as any;
   const gatewayRegistry = { resolve: jest.fn().mockReturnValue({ capabilities: { requiresWebhook: true } }) } as any;
 
-  const service = new CustomerPaymentService(prisma, checkoutService, paymentService, orchestrator, gatewayRegistry);
+  const reservations = {
+    reserveForPayment: jest.fn().mockResolvedValue(undefined),
+    hasLiveHold: jest.fn().mockResolvedValue(true),
+    transferToPayment: jest.fn().mockResolvedValue(true),
+  } as any;
+
+  const service = new CustomerPaymentService(prisma, checkoutService, paymentService, orchestrator, gatewayRegistry, reservations);
   const controller = new CustomerPaymentController(service);
 
   return {
@@ -148,10 +158,22 @@ describe('Customer Payment API — cross-customer isolation (integration)', () =
     const h = buildHarness();
     const principalA = await resolvePrincipal(h.customersById, 'cust_a', STORE_A);
 
-    const result = await h.controller.initiate(principalA, CHECKOUT_A, {}, {} as any);
+    const result = await h.controller.initiate(principalA, CHECKOUT_A, {}, { cartSessionId: SESSION_A } as any);
 
     expect(result.paymentId).toBe(PAYMENT_A);
     expect(h.checkouts[CHECKOUT_A].customerId).toBe('cust_a');
+  });
+
+  it('a signed-in customer cannot claim an unclaimed (e.g. guest) checkout from another cart session — 404, stays unclaimed', async () => {
+    const h = buildHarness();
+    const principalA = await resolvePrincipal(h.customersById, 'cust_a', STORE_A);
+
+    await expect(h.controller.initiate(principalA, CHECKOUT_A, {}, { cartSessionId: 'f'.repeat(32) } as any))
+      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(h.controller.initiate(principalA, CHECKOUT_A, {}, {} as any))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(h.checkouts[CHECKOUT_A].customerId).toBeNull();
+    expect(h.paymentService.createPaymentAttempt).not.toHaveBeenCalled();
   });
 
   it('customer B cannot initiate payment on customer A\'s checkout (different store) — 404', async () => {
@@ -159,7 +181,7 @@ describe('Customer Payment API — cross-customer isolation (integration)', () =
     const principalB = await resolvePrincipal(h.customersById, 'cust_b', STORE_B);
 
     await expect(h.controller.initiate(principalB, CHECKOUT_A, {}, {} as any)).rejects.toBeInstanceOf(NotFoundException);
-    expect(h.checkoutService.getSummary).not.toHaveBeenCalled();
+    expect(h.checkoutService.getSummaryForVerifiedOwner).not.toHaveBeenCalled();
   });
 
   it('a forged principal (A\'s id under B\'s storeId) cannot reach A\'s checkout either', async () => {

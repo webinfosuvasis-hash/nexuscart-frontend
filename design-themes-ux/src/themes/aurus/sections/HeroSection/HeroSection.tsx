@@ -27,6 +27,7 @@ import type { SectionComponentProps } from '../shared/types';
 import type { HeroConfig, HeroData } from './HeroSection.types';
 import { isBannerSlide, isEditorialSlide, AURUS_HERO_FALLBACK_BG } from './HeroSection.types';
 import { buildOverlayGradient } from '../shared/pipeline';
+import HeroAtmosphere from './HeroAtmosphere';
 
 // ─── Theme style constants (matching AurusHome.tsx) ───────────────────────────
 
@@ -79,8 +80,8 @@ const HeroSection: React.FC<SectionComponentProps<HeroConfig, HeroData>> = ({
         {enabledSlides.map((sl, i) => (
           <div
             key={sl.id}
-            className={`absolute inset-0 transition-opacity duration-200 ease-in-out ${
-              i === slide ? 'opacity-100 z-10 visible' : 'opacity-0 z-0 pointer-events-none invisible'
+            className={`absolute inset-0 transition-[opacity,transform] duration-[800ms] ease-out ${
+              i === slide ? 'opacity-100 z-10 visible scale-100' : 'opacity-0 z-0 pointer-events-none invisible scale-[1.02]'
             }`}
           >
             {isBannerSlide(sl) ? (
@@ -165,6 +166,9 @@ const HeroSection: React.FC<SectionComponentProps<HeroConfig, HeroData>> = ({
             ) : null}
           </div>
         ))}
+
+        {/* Ambient underwater atmosphere — decorative only, sits above the photo/text stack */}
+        <HeroAtmosphere />
 
         {/* ← Prev arrow */}
         {enabledSlides.length > 1 && (

@@ -15,6 +15,9 @@ import { useSearchParams } from 'react-router-dom';
 import type { ListingQueryParams, SortOption } from '@/lib/storefrontApi';
 
 const ATTR_PREFIX = 'attr_';
+const SORT_OPTIONS: ReadonlySet<string> = new Set<SortOption>([
+  'featured', 'newest', 'price_asc', 'price_desc', 'popularity', 'discount', 'alphabetical',
+]);
 const MULTI_KEYS = ['color', 'size', 'badge'] as const;
 type MultiKey = typeof MULTI_KEYS[number];
 
@@ -44,6 +47,13 @@ export interface UseFiltersResult {
   totalActive:    number;
 }
 
+/** Finite, non-negative number from a URL param — anything malformed (`?page=abc`) is ignored, never sent as NaN. */
+function num(value: string | null): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 function csv(value: string | null): string[] | undefined {
   if (!value) return undefined;
   return value.split(',').map((s) => s.trim()).filter(Boolean);
@@ -66,17 +76,17 @@ export function useFilters(categorySlug?: string): UseFiltersResult {
       brandSlug:      searchParams.get('brand') ?? undefined,
       collectionSlug: searchParams.get('collection') ?? undefined,
       q:              searchParams.get('q') ?? undefined,
-      priceMin:       searchParams.get('priceMin') ? Number(searchParams.get('priceMin')) : undefined,
-      priceMax:       searchParams.get('priceMax') ? Number(searchParams.get('priceMax')) : undefined,
+      priceMin:       num(searchParams.get('priceMin')),
+      priceMax:       num(searchParams.get('priceMax')),
       color:          csv(searchParams.get('color')),
       size:           csv(searchParams.get('size')),
       badge:          csv(searchParams.get('badge')),
       attr:           Object.keys(attr).length ? attr : undefined,
       inStock:        searchParams.get('inStock') === 'true',
-      discountMin:    searchParams.get('discountMin') ? Number(searchParams.get('discountMin')) : undefined,
-      rating:         searchParams.get('rating') ? Number(searchParams.get('rating')) : undefined,
-      sortBy:         (searchParams.get('sortBy') as SortOption) ?? undefined,
-      page:           searchParams.get('page') ? Number(searchParams.get('page')) : 1,
+      discountMin:    num(searchParams.get('discountMin')),
+      rating:         num(searchParams.get('rating')),
+      sortBy:         SORT_OPTIONS.has(searchParams.get('sortBy') ?? '') ? (searchParams.get('sortBy') as SortOption) : undefined,
+      page:           Math.max(1, Math.floor(num(searchParams.get('page')) ?? 1)),
     };
   }, [searchParams, categorySlug]);
 

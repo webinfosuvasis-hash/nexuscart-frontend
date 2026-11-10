@@ -7,6 +7,7 @@ import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 import { PrismaModule } from './prisma/prisma.module';
+import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { StoresModule } from './modules/stores/stores.module';
@@ -22,6 +23,8 @@ import { SearchModule } from './modules/search/search.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { BrandsModule } from './modules/brands/brands.module';
+import { VendorsModule } from './modules/vendors/vendors.module';
+import { VendorAuthModule } from './modules/vendor-auth/vendor-auth.module';
 import { CollectionsModule } from './modules/collections/collections.module';
 import { AttributesModule } from './modules/attributes/attributes.module';
 import { UploadModule } from './modules/upload/upload.module';
@@ -32,6 +35,8 @@ import { PageBuilderModule } from './modules/page-builder/page-builder.module';
 import { CacheModule }       from './shared/cache/cache.module';
 import { CdnModule }         from './shared/cdn/cdn.module';
 import { OutboxHelperModule } from './shared/outbox/outbox-helper.module';
+import { InventoryReservationModule } from './shared/inventory/inventory-reservation.module';
+import { EmailModule } from './shared/email/email.module';
 import { CartModule }     from './modules/cart/cart.module';
 import { CheckoutModule } from './modules/checkout/checkout.module';
 import { PaymentOrchestratorModule } from './modules/payment-orchestrator/payment-orchestrator.module';
@@ -47,11 +52,14 @@ import { CustomerPaymentModule }    from './modules/customer-payment/customer-pa
 import { CustomerOrdersModule }     from './modules/customer-orders/customer-orders.module';
 import { CustomerShipmentModule }   from './modules/customer-shipment/customer-shipment.module';
 import { CustomerCancellationModule } from './modules/customer-cancellation/customer-cancellation.module';
+import { InvoiceModule }           from './modules/invoice/invoice.module';
+import { CustomerInvoiceModule }   from './modules/customer-invoice/customer-invoice.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule }     from '@nestjs/schedule';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { StoreContextGuard } from './common/guards/store-context.guard';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { StoreContextMiddleware } from './common/middleware/store-context.middleware';
@@ -75,6 +83,14 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
         CUSTOMER_JWT_REFRESH_SECRET:      Joi.string().min(32).required(),
         CUSTOMER_JWT_EXPIRES_IN:          Joi.string().default('15m'),
         CUSTOMER_JWT_REFRESH_EXPIRES_DAYS:Joi.number().default(30),
+        // Vendor portal auth — its own secret, refused if it equals any other JWT secret.
+        VENDOR_JWT_SECRET:                Joi.string().min(32).required()
+          .invalid(Joi.ref('JWT_SECRET'), Joi.ref('JWT_REFRESH_SECRET'), Joi.ref('CUSTOMER_JWT_SECRET'),
+                   Joi.ref('CUSTOMER_JWT_REFRESH_SECRET'), Joi.ref('PREVIEW_JWT_SECRET'))
+          .messages({ 'any.invalid': 'VENDOR_JWT_SECRET must differ from every other JWT secret' }),
+        VENDOR_JWT_EXPIRES_IN:            Joi.string().default('15m'),
+        VENDOR_REFRESH_EXPIRES_DAYS:      Joi.number().default(7),
+        VENDOR_PORTAL_URL:                Joi.string().uri().default('http://localhost:8080/vendor.html'),
         CUSTOMER_PASSWORD_RESET_EXPIRES_MINUTES:    Joi.number().default(30),
         CUSTOMER_EMAIL_VERIFICATION_EXPIRES_HOURS:  Joi.number().default(48),
         REDIS_HOST:              Joi.string().default('localhost'),
@@ -110,7 +126,10 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
     EventEmitterModule.forRoot({ wildcard: true, global: true }),
     ScheduleModule.forRoot(),
     PrismaModule,
+    HealthModule,
     OutboxHelperModule, // @Global — provides OutboxHelperService to all modules
+    InventoryReservationModule, // @Global — checkout stock holds (InventoryReservationService)
+    EmailModule,        // @Global — SMTP transactional email (EmailService)
     CacheModule,        // @Global — provides CacheService to all modules
     CdnModule,        // @Global — provides CdnService to all modules
     AuthModule,
@@ -128,6 +147,8 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
     AnalyticsModule,
     SubscriptionsModule,
     BrandsModule,
+    VendorsModule,               // Marketplace vendors (product assignment + order emails)
+    VendorAuthModule,            // Vendor portal accounts: invitations, login, sessions
     CollectionsModule,
     AttributesModule,
     UploadModule,
@@ -150,10 +171,15 @@ import { ThemeContextMiddleware } from './common/middleware/theme-context.middle
     CustomerOrdersModule,        // Customer Self-Service Phase 5 — Order History & Order Details
     CustomerShipmentModule,      // Customer Self-Service Phase 6 — Shipment Tracking
     CustomerCancellationModule,  // Customer Self-Service Phase 7 — Order Cancellation & Refund Status
+    InvoiceModule,               // Phase 8 — Merchant/Admin Invoice
+    CustomerInvoiceModule,       // Phase 8 — Customer Invoice
   ],
   providers: [
     // Global JWT guard — all routes protected unless @Public()
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Tenant isolation: X-Store-Id must be the user's own store or a StoreStaff
+    // membership (role taken from that membership). Must run before PermissionsGuard.
+    { provide: APP_GUARD, useClass: StoreContextGuard },
     // RBAC via @Permissions() and @Roles() decorators
     { provide: APP_GUARD, useClass: PermissionsGuard },
     // Rate limiting

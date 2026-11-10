@@ -2,6 +2,7 @@ import React from 'react';
 import { Menu, Search, Bell, Sun, Moon } from 'lucide-react';
 import { useTheme } from '@/components/theme-provider';
 import { toast } from 'sonner';
+import StoreSwitcher from './StoreSwitcher';
 
 const Topbar: React.FC<{ onMenu: () => void; title: string }> = ({ onMenu, title }) => {
   const { theme, setTheme } = useTheme();
@@ -12,6 +13,7 @@ const Topbar: React.FC<{ onMenu: () => void; title: string }> = ({ onMenu, title
         <h2 className="text-lg font-bold text-slate-900 dark:text-white capitalize hidden sm:block">{title}</h2>
       </div>
       <div className="flex items-center gap-2">
+        <StoreSwitcher />
         <div className="relative hidden md:block">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input placeholder="Search anything..." className="pl-9 pr-4 py-2 w-56 rounded-lg bg-slate-100 dark:bg-slate-700 text-sm border-0 focus:ring-2 focus:ring-indigo-500 dark:text-white" />

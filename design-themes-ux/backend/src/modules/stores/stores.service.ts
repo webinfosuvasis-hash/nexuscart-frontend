@@ -2,11 +2,16 @@ import {
   Injectable, NotFoundException, ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { CacheService } from '@/shared/cache/cache.service';
+import { CACHE_KEYS } from '@/shared/cache/cache.constants';
 import slugify from 'slugify';
 
 @Injectable()
 export class StoresService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache:  CacheService,
+  ) {}
 
   async findAll(query: any) {
     const { page = 1, limit = 20, search, status, businessType } = query;
@@ -103,17 +108,23 @@ export class StoresService {
 
   async update(id: string, dto: any) {
     await this.findOne(id);
-    return this.prisma.store.update({ where: { id }, data: dto });
+    const store = await this.prisma.store.update({ where: { id }, data: dto });
+    await this.cache.del(CACHE_KEYS.storeContext(id));
+    return store;
   }
 
   async suspend(id: string) {
     await this.findOne(id);
-    return this.prisma.store.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    const store = await this.prisma.store.update({ where: { id }, data: { status: 'SUSPENDED' } });
+    await this.cache.del(CACHE_KEYS.storeContext(id));
+    return store;
   }
 
   async activate(id: string) {
     await this.findOne(id);
-    return this.prisma.store.update({ where: { id }, data: { status: 'ACTIVE' } });
+    const store = await this.prisma.store.update({ where: { id }, data: { status: 'ACTIVE' } });
+    await this.cache.del(CACHE_KEYS.storeContext(id));
+    return store;
   }
 
   async getPlatformStats() {

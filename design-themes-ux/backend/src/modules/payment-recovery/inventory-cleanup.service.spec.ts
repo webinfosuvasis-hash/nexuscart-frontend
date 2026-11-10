@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryReservationStatus, PaymentTxStatus } from '@prisma/client';
 import { InventoryCleanupService } from './inventory-cleanup.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { InventoryReservationService } from '../../shared/inventory/inventory-reservation.service';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -12,8 +13,13 @@ function buildPrismaMock() {
     inventoryReservation: {
       findMany: jest.fn().mockResolvedValue([]),
     },
-    $transaction: jest.fn(),
   };
+}
+
+// Stock is returned by InventoryReservationService.expire (status-guarded,
+// atomic — covered in its own spec); this job only decides *which* holds to expire.
+function buildReservationsMock() {
+  return { expire: jest.fn().mockResolvedValue(true) };
 }
 
 /** Builds a minimal expired reservation with one item and an optional payment. */
@@ -36,28 +42,6 @@ function makeReservation(
   };
 }
 
-/**
- * Builds a $transaction mock that executes the callback synchronously.
- * `txInventoryReservationResult` controls what updateMany returns for the reservation row.
- * `txInventoryLevelResult`       controls what updateMany returns for each inventory level row.
- */
-function makeTransactionMock(
-  txInventoryReservationResult: { count: number },
-  txInventoryLevelResult: { count: number } = { count: 1 },
-) {
-  return jest.fn().mockImplementation(async (fn: Function) => {
-    const txClient = {
-      inventoryReservation: {
-        updateMany: jest.fn().mockResolvedValue(txInventoryReservationResult),
-      },
-      inventoryLevel: {
-        updateMany: jest.fn().mockResolvedValue(txInventoryLevelResult),
-      },
-    };
-    return fn(txClient);
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -65,14 +49,17 @@ function makeTransactionMock(
 describe('InventoryCleanupService', () => {
   let service: InventoryCleanupService;
   let prisma:   ReturnType<typeof buildPrismaMock>;
+  let reservations: ReturnType<typeof buildReservationsMock>;
 
   beforeEach(async () => {
     prisma = buildPrismaMock();
+    reservations = buildReservationsMock();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryCleanupService,
         { provide: PrismaService, useValue: prisma },
+        { provide: InventoryReservationService, useValue: reservations },
       ],
     }).compile();
 
@@ -83,15 +70,14 @@ describe('InventoryCleanupService', () => {
 
   // ─── Successful cleanup ───────────────────────────────────────────────────
 
-  it('marks RESERVED reservation as EXPIRED and decrements reserved on success', async () => {
+  it('expires the lapsed hold (returning its stock) on success', async () => {
     const reservation = makeReservation(null);
     prisma.inventoryReservation.findMany.mockResolvedValueOnce([reservation]);
-    prisma.$transaction = makeTransactionMock({ count: 1 }, { count: 1 });
     const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {});
 
     await service.releaseExpiredReservations();
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(reservations.expire).toHaveBeenCalledWith('res-1');
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Released expired reservation res-1'));
   });
 
@@ -100,13 +86,15 @@ describe('InventoryCleanupService', () => {
   it('no-ops without error when reservation was concurrently released (count=0 idempotent)', async () => {
     const reservation = makeReservation(null);
     prisma.inventoryReservation.findMany.mockResolvedValueOnce([reservation]);
-    // count=0 means the reservation was already moved out of RESERVED by another instance
-    prisma.$transaction = makeTransactionMock({ count: 0 });
+    // false means the reservation was already moved out of RESERVED by another instance
+    reservations.expire.mockResolvedValueOnce(false);
     const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {});
+    const logSpy   = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {});
 
     await service.releaseExpiredReservations();
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(reservations.expire).toHaveBeenCalledTimes(1);
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Released expired reservation'));
     // No error because count=0 is the idempotent path, not a failure
     expect(errorSpy).not.toHaveBeenCalled();
   });
@@ -120,7 +108,7 @@ describe('InventoryCleanupService', () => {
 
     await service.releaseExpiredReservations();
 
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(reservations.expire).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('CAPTURED'));
   });
 
@@ -132,7 +120,7 @@ describe('InventoryCleanupService', () => {
 
     await service.releaseExpiredReservations();
 
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(reservations.expire).not.toHaveBeenCalled();
   });
 
   // ─── orderId anomaly ──────────────────────────────────────────────────────
@@ -145,18 +133,16 @@ describe('InventoryCleanupService', () => {
 
     await service.releaseExpiredReservations();
 
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(reservations.expire).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('res-1'));
   });
 
   // ─── Lower-bound guard: transaction rolls back ────────────────────────────
 
-  it('throws inside transaction and rolls back when lower-bound guard fires (count=0)', async () => {
+  it('logs and does not report a release when returning the stock fails', async () => {
     const reservation = makeReservation(null);
     prisma.inventoryReservation.findMany.mockResolvedValueOnce([reservation]);
-
-    // Reservation update succeeds (count=1) but inventory level update returns count=0
-    prisma.$transaction = makeTransactionMock({ count: 1 }, { count: 0 });
+    reservations.expire.mockRejectedValueOnce(new Error('deadlock'));
     const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation(() => {});
     const logSpy   = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {});
 
@@ -172,10 +158,10 @@ describe('InventoryCleanupService', () => {
 
   // ─── Transaction rollback verification ───────────────────────────────────
 
-  it('does not count a failed release — released stays 0 after lower-bound guard rollback', async () => {
+  it('does not count a failed release — released stays 0', async () => {
     const reservation = makeReservation(null);
     prisma.inventoryReservation.findMany.mockResolvedValueOnce([reservation]);
-    prisma.$transaction = makeTransactionMock({ count: 1 }, { count: 0 });
+    reservations.expire.mockRejectedValueOnce(new Error('deadlock'));
     const logSpy = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {});
     jest.spyOn((service as any).logger, 'error').mockImplementation(() => {});
 
@@ -195,23 +181,9 @@ describe('InventoryCleanupService', () => {
     const succeedingRes = { ...makeReservation(null), id: 'res-ok' };
     prisma.inventoryReservation.findMany.mockResolvedValueOnce([failingRes, succeedingRes]);
 
-    // First call: lower-bound guard fires (count=0 for level)
-    // Second call: full success
-    prisma.$transaction = jest.fn()
-      .mockImplementationOnce(async (fn: Function) => {
-        const txClient = {
-          inventoryReservation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-          inventoryLevel:       { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-        };
-        return fn(txClient);
-      })
-      .mockImplementationOnce(async (fn: Function) => {
-        const txClient = {
-          inventoryReservation: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-          inventoryLevel:       { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-        };
-        return fn(txClient);
-      });
+    reservations.expire
+      .mockRejectedValueOnce(new Error('deadlock'))
+      .mockResolvedValueOnce(true);
 
     const logSpy   = jest.spyOn((service as any).logger, 'log').mockImplementation(() => {});
     jest.spyOn((service as any).logger, 'error').mockImplementation(() => {});
@@ -221,7 +193,7 @@ describe('InventoryCleanupService', () => {
     // Second reservation must have been released despite first failing
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Released expired reservation res-ok'));
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Released expired reservation res-fail'));
-    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(reservations.expire).toHaveBeenCalledTimes(2);
   });
 
   // ─── No expired reservations ─────────────────────────────────────────────
@@ -231,6 +203,6 @@ describe('InventoryCleanupService', () => {
 
     await service.releaseExpiredReservations();
 
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(reservations.expire).not.toHaveBeenCalled();
   });
 });

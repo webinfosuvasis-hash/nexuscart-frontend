@@ -8,8 +8,9 @@
  * Admin API calls use a separate authenticated client (not this file).
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
-const STORE_ID = import.meta.env.VITE_STORE_ID ?? '';
+import { API_BASE_URL, STORE_ID } from './env';
+
+const BASE_URL = API_BASE_URL;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

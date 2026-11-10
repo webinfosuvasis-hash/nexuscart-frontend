@@ -88,7 +88,7 @@ export class CheckoutEngineService {
       unitPrice:         Number(i.unitPrice),
     }));
 
-    const invResults = await this.inventory.validateBatch(storeId, invInputs);
+    const invResults = await this.inventory.validateBatch(storeId, invInputs, checkout.id);
 
     for (const r of invResults) {
       if (r.isOutOfStock) {

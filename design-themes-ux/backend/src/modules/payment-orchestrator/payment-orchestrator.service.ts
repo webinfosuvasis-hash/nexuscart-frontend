@@ -23,12 +23,15 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { InventoryReservationService } from '../../shared/inventory/inventory-reservation.service';
 import {
   CompletePaymentResult,
   OrchestratorAddressSnapshot,
   OrchestratorCheckoutSnapshot,
   OrchestratorSnapshotItem,
 } from './types/orchestrator.types';
+
+const COD_GATEWAY = 'cod';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -70,6 +73,7 @@ export class PaymentOrchestratorService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configSvc: ConfigService,
+    private readonly reservations: InventoryReservationService,
   ) {}
 
   // ─── Main entry point ─────────────────────────────────────────────────────
@@ -100,7 +104,7 @@ export class PaymentOrchestratorService {
     const snapshot = await this.buildAndPersistSnapshot(tx);
 
     // Step 4: Commit inventory (idempotent — no-op if already committed or missing)
-    await this.commitInventory(tx, storeId);
+    await this.commitInventory(tx, storeId, snapshot);
 
     // Step 5: Create order (idempotency via IdempotencyRecord; atomic via $transaction)
     const order = await this.createOrderWithIdempotency(tx, snapshot, storeId);
@@ -272,61 +276,20 @@ export class PaymentOrchestratorService {
 
   // ─── Step 4: Inventory commit ──────────────────────────────────────────────
 
-  private async commitInventory(tx: PaymentTransaction, storeId: string): Promise<void> {
-    const reservation = await this.prisma.inventoryReservation.findUnique({
-      where:   { paymentTransactionId: tx.id },
-      include: { items: true },
-    });
-
-    if (!reservation) {
-      this.logger.warn(`No inventory reservation for payment ${tx.id} — skipping commit`);
-      return;
-    }
-
-    if (reservation.status === InventoryReservationStatus.COMMITTED) {
-      this.logger.log(`Inventory already committed for payment ${tx.id}`);
-      return;
-    }
-
-    if (reservation.status !== InventoryReservationStatus.RESERVED) {
-      this.logger.warn(
-        `Reservation ${reservation.id} is ${reservation.status} — cannot commit; proceeding anyway`,
-      );
-      return;
-    }
-
-    await this.prisma.$transaction(async (txClient) => {
-      // Optimistic lock on RESERVED status — prevents duplicate commit under concurrency
-      const result = await txClient.inventoryReservation.updateMany({
-        where: { id: reservation.id, status: InventoryReservationStatus.RESERVED },
-        data:  { status: InventoryReservationStatus.COMMITTED, releasedAt: new Date() },
-      });
-      if (result.count === 0) return; // Concurrent call already committed — idempotent
-
-      // RESERVED → COMMITTED: release the soft-lock, deduct from onHand, increment committed
-      // P1-3: lower-bound guards prevent onHand / reserved from going negative
-      for (const item of reservation.items) {
-        const updated = await txClient.inventoryLevel.updateMany({
-          where: {
-            storeId,
-            productId: item.productId,
-            variantId: item.variantId ?? null,
-            onHand:    { gte: item.quantity },
-            reserved:  { gte: item.quantity },
-          },
-          data: {
-            onHand:    { decrement: item.quantity },
-            reserved:  { decrement: item.quantity },
-            committed: { increment: item.quantity },
-          },
-        });
-        if (updated.count === 0) {
-          this.logger.error(
-            `Inventory lower-bound guard prevented decrement for product ${item.productId} ` +
-            `(qty ${item.quantity}) — inventory accounting may be inconsistent for payment ${tx.id}`,
-          );
-        }
-      }
+  // Stock was taken out at payment time (InventoryReservationService); this
+  // marks that hold COMMITTED. With no live hold (payment started before
+  // holds existed, or captured after its hold lapsed) the snapshot's lines
+  // are deducted now — the order is never blocked, since the money is taken.
+  private async commitInventory(
+    tx:       PaymentTransaction,
+    storeId:  string,
+    snapshot: OrchestratorCheckoutSnapshot,
+  ): Promise<void> {
+    await this.reservations.commitForPayment({
+      storeId,
+      checkoutId:           tx.checkoutSessionId,
+      paymentTransactionId: tx.id,
+      fallbackLines:        snapshot.items.map((i) => ({ productId: i.productId, variantId: i.variantId, quantity: i.quantity })),
     });
   }
 
@@ -404,7 +367,10 @@ export class PaymentOrchestratorService {
           customerId:          snapshot.customerId ?? undefined,
           orderNumber,
           status:              OrderStatus.PENDING,
-          paymentStatus:       PaymentStatus.PAID,
+          // Cash on delivery: "captured" only means the order is confirmed —
+          // no money has changed hands yet. It becomes PAID on delivery
+          // (OrdersService.updateStatus / FulfillmentService.markDelivered).
+          paymentStatus:       tx.gatewayCode === COD_GATEWAY ? PaymentStatus.PENDING : PaymentStatus.PAID,
           paymentMethod:       tx.gatewayCode,
           paymentGatewayCode:  tx.gatewayCode,
           subtotal:            new Prisma.Decimal(snapshot.subtotal),
@@ -428,6 +394,14 @@ export class PaymentOrchestratorService {
 
       // Create OrderItems from snapshot — prices frozen at checkout time
       if (snapshot.items.length > 0) {
+        // Vendor ownership comes from the store's own product rows, read in this
+        // transaction — never from the cart or client — and is frozen on each line.
+        const owners = await txClient.product.findMany({
+          where:  { id: { in: [...new Set(snapshot.items.map((i) => i.productId))] }, storeId },
+          select: { id: true, vendorId: true },
+        });
+        const vendorByProduct = new Map(owners.map((p) => [p.id, p.vendorId]));
+
         await txClient.orderItem.createMany({
           data: snapshot.items.map((item) => ({
             orderId:     order.id,
@@ -447,6 +421,7 @@ export class PaymentOrchestratorService {
             lineDiscount: new Prisma.Decimal(item.lineDiscount),
             taxClass:     item.taxCategory ?? undefined,
             hsn:          item.hsn ?? undefined,
+            vendorId:     vendorByProduct.get(item.productId) ?? null,
           })),
         });
       }

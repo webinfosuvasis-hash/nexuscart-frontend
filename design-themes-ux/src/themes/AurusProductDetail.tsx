@@ -8,6 +8,7 @@ import { useProductDetail } from '@/hooks/useProductDetail';
 import { useRecentlyViewed } from '@/hooks/useRecentlyViewed';
 import { ApiError, type ProductVariant } from '@/lib/storefrontApi';
 import AurusHeader from './aurus/AurusHeader';
+import AurusFooter from './aurus/AurusFooter';
 import { UI, SERIF } from './aurus/constants';
 import ProductGallery from '@/components/storefront/pdp/ProductGallery';
 import VariantSelector from '@/components/storefront/pdp/VariantSelector';
@@ -131,7 +132,7 @@ const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChang
       />
 
       <div className="bg-white border-b border-gray-100 py-2.5">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-5 flex items-center gap-1.5 text-[11px] text-gray-400 flex-wrap" style={UI}>
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-5 flex items-center gap-1.5 text-[11px] text-gray-500 flex-wrap" style={UI}>
           {product.breadcrumbs.map((bc, i) => (
             <React.Fragment key={`${bc.url}-${i}`}>
               {i > 0 && <ChevronRight className="w-3 h-3" />}
@@ -211,6 +212,8 @@ const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChang
               </button>
               <button
                 onClick={() => toggleWishlist(product.id)}
+                aria-label={wished ? `Remove ${product.name} from wishlist` : `Add ${product.name} to wishlist`}
+                aria-pressed={wished}
                 className={`px-4 py-3.5 border-2 rounded-sm transition-colors ${wished ? 'border-red-400 bg-red-50' : 'border-gray-300 hover:border-red-400'}`}
               >
                 <Heart className={`w-5 h-5 ${wished ? 'fill-red-500 text-red-500' : 'text-gray-500'}`} />
@@ -236,6 +239,7 @@ const AurusProductDetail: React.FC<AurusProductDetailProps> = ({ id, onMetaChang
       <ProductCarousel title="Similar Products" products={product.similarProducts} />
       <RecentlyViewedSection ids={recentlyViewedIds} excludeProductId={product.id} />
 
+      <AurusFooter />
     </div>
   );
 };

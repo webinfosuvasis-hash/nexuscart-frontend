@@ -13,6 +13,10 @@ import { StorefrontProductsController }    from './storefront-products.controlle
 import { StorefrontFacetsService }         from './storefront-facets.service';
 import { StorefrontProductDetailService }  from './storefront-product-detail.service';
 import { StorefrontReviewsService }        from './storefront-reviews.service';
+import { StorefrontMenuService }           from './storefront-menu.service';
+import { StorefrontMenuController }        from './storefront-menu.controller';
+import { StorefrontCmsService }            from './storefront-cms.service';
+import { StorefrontCmsController }         from './storefront-cms.controller';
 
 @Module({
   imports: [
@@ -21,16 +25,21 @@ import { StorefrontReviewsService }        from './storefront-reviews.service';
     ThemeEngineModule,
     ContentModule,        // provides FeatureFlagService, DocumentService
   ],
-  controllers: [StorefrontController, StorefrontPageBuilderController, StorefrontProductsController],
+  controllers: [
+    StorefrontController, StorefrontPageBuilderController, StorefrontProductsController,
+    StorefrontMenuController, StorefrontCmsController,
+  ],
   providers:   [
     StorefrontService, StorefrontGuard, StorefrontPageBuilderService,
     StorefrontProductsService, StorefrontFacetsService,
     StorefrontProductDetailService, StorefrontReviewsService,
+    StorefrontMenuService, StorefrontCmsService,
   ],
   exports: [
     StorefrontService, StorefrontPageBuilderService,
     StorefrontProductsService, StorefrontFacetsService,
     StorefrontProductDetailService, StorefrontReviewsService,
+    StorefrontMenuService,
   ],
 })
 export class StorefrontModule {}

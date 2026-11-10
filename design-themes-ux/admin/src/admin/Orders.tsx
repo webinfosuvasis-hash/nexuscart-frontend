@@ -7,6 +7,15 @@ import {
 import { toast } from 'sonner';
 import { Card, PageHeader, Btn, Badge } from './ui';
 import { useOrders, useOrderStats, useUpdateOrderStatus, useAddShipment, useCreateRefund, useAddOrderNote } from '@/hooks/useOrders';
+import { addressLines, parseAddress } from '@/lib/address';
+import { formatMoney } from '@/lib/money';
+import { useStoreCurrency } from '@/hooks/useStoreCurrency';
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = { cod: 'Cash on Delivery', razorpay: 'Razorpay', stripe: 'Stripe', mock: 'Test payment' };
+const paymentMethodLabel = (code?: string | null) => (code ? PAYMENT_METHOD_LABELS[code] ?? code : 'Online');
+/** COD orders stay PENDING until delivered (cash collected at the door). */
+const paymentStatusLabel = (status?: string | null, method?: string | null) =>
+  status === 'PENDING' && method === 'cod' ? 'Due on delivery' : (status ?? 'Pending');
 
 const STATUSES = ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED', 'REFUNDED'] as const;
 type OrderStatus = typeof STATUSES[number];
@@ -40,6 +49,8 @@ const Orders: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<any>(null);
+  // Stored as a JSON snapshot string on the order — parse before display.
+  const shippingAddress = parseAddress(detail?.shippingAddress);
   const [trackingInput, setTrackingInput] = useState('');
   const [noteInput, setNoteInput] = useState('');
   const [refundAmount, setRefundAmount] = useState('');
@@ -101,7 +112,8 @@ const Orders: React.FC = () => {
   ];
 
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  const fmtTotal = (t: any) => `$${Number(t).toFixed(2)}`;
+  const currency = useStoreCurrency();
+  const fmtTotal = (t: any) => formatMoney(t, currency);
   const stepIdx = (status: string) => TIMELINE_STEPS.indexOf(status as OrderStatus);
 
   return (
@@ -190,7 +202,7 @@ const Orders: React.FC = () => {
                       <td className="p-3 font-bold text-slate-900 dark:text-white">{fmtTotal(o.total)}</td>
                       <td className="p-3">
                         <span className="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300">
-                          <CreditCard size={12} /> {o.paymentMethod ?? 'Online'}
+                          <CreditCard size={12} /> {paymentMethodLabel(o.paymentMethod)}
                         </span>
                       </td>
                       <td className="p-3"><Badge status={o.status} /></td>
@@ -291,9 +303,9 @@ const Orders: React.FC = () => {
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4">
                   <p className="text-xs text-slate-500 mb-1">Payment</p>
-                  <p className="font-bold text-slate-900 dark:text-white">{detail.paymentMethod ?? 'Online'}</p>
+                  <p className="font-bold text-slate-900 dark:text-white">{paymentMethodLabel(detail.paymentMethod)}</p>
                   <p className={`text-xs font-semibold mt-0.5 ${detail.paymentStatus === 'PAID' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {detail.paymentStatus ?? 'Pending'}
+                    {paymentStatusLabel(detail.paymentStatus, detail.paymentMethod)}
                   </p>
                 </div>
               </div>
@@ -336,14 +348,16 @@ const Orders: React.FC = () => {
               </div>
 
               {/* Shipping Address */}
-              {detail.shippingAddress && (
+              {shippingAddress && (
                 <div>
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
                     <MapPin size={12} /> Shipping Address
                   </p>
-                  <div className="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4">
-                    {Object.values(detail.shippingAddress).filter(Boolean).join(', ')}
-                  </div>
+                  <address className="not-italic text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/50 rounded-xl p-4 space-y-0.5">
+                    {addressLines(shippingAddress).map((line, i) => (
+                      <p key={i}>{line}</p>
+                    ))}
+                  </address>
                 </div>
               )}
 

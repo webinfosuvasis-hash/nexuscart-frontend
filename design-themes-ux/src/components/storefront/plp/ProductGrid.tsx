@@ -71,7 +71,9 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products, isFetching }) => {
 
               <button
                 onClick={() => toggleWishlist(p.id)}
-                className="absolute bottom-2.5 right-2.5 z-10 bg-white/90 rounded-full p-1.5 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                aria-label={wished ? `Remove ${p.name} from wishlist` : `Add ${p.name} to wishlist`}
+                aria-pressed={wished}
+                className="absolute bottom-2.5 right-2.5 z-10 bg-white/90 rounded-full p-1.5 shadow-sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity duration-200"
               >
                 <Heart className={`w-3.5 h-3.5 ${wished ? 'fill-purple-700 text-purple-700' : 'text-gray-500'}`} />
               </button>
@@ -134,11 +136,11 @@ const ProductGrid: React.FC<ProductGridProps> = ({ products, isFetching }) => {
               </Link>
               <div className="flex items-center gap-1 mt-1.5">
                 <MiniStars r={p.rating} />
-                <span className="text-[10px] text-gray-400">({p.reviewCount})</span>
+                <span className="text-[10px] text-gray-500">({p.reviewCount})</span>
               </div>
               <div className="flex items-baseline gap-1.5 mt-1.5 flex-wrap">
                 <span className="text-[14px] font-bold text-gray-900" style={UI}>{inr(p.price)}</span>
-                {p.mrp > p.price && <span className="text-[11px] text-gray-400 line-through">{inr(p.mrp)}</span>}
+                {p.mrp > p.price && <span className="text-[11px] text-gray-500 line-through">{inr(p.mrp)}</span>}
                 {p.discount > 0 && <span className="text-[10px] font-semibold text-emerald-700">{p.discount}% off</span>}
               </div>
             </div>

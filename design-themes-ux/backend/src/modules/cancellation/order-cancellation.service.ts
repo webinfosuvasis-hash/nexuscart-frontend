@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { PaymentService } from '@/modules/payment/payment.service';
+import { InventoryReservationService } from '@/shared/inventory/inventory-reservation.service';
 import {
   CancelOrderInput,
   CancellationResult,
@@ -29,6 +30,7 @@ export class OrderCancellationService {
   constructor(
     private readonly prisma:      PrismaService,
     private readonly paymentSvc:  PaymentService,
+    private readonly reservations: InventoryReservationService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -140,64 +142,14 @@ export class OrderCancellationService {
         inventoryReleased = true;
 
       } else if (reservation.status === InventoryReservationStatus.RESERVED) {
-        // RESERVED → EXPIRED: reserved counter only; onHand was never decremented
-        await this.prisma.$transaction(async (txClient) => {
-          const result = await txClient.inventoryReservation.updateMany({
-            where: { id: reservation.id, status: InventoryReservationStatus.RESERVED },
-            data:  { status: InventoryReservationStatus.EXPIRED, releasedAt: new Date() },
-          });
-          if (result.count === 0) return; // concurrent release — idempotent
-
-          for (const item of reservation.items) {
-            const updated = await txClient.inventoryLevel.updateMany({
-              where: {
-                storeId:   reservation.storeId,
-                productId: item.productId,
-                variantId: item.variantId ?? null,
-                reserved:  { gte: item.quantity },
-              },
-              data: { reserved: { decrement: item.quantity } },
-            });
-            if (updated.count === 0) {
-              throw new Error(
-                `Inventory lower-bound guard (reserved) blocked release: ` +
-                `product=${item.productId} qty=${item.quantity} reservation=${reservation.id}`,
-              );
-            }
-          }
-        });
+        // Hold never committed — its units go back on sale (RESERVED → EXPIRED).
+        // Status-guarded inside the service, so a concurrent release is a no-op.
+        await this.reservations.expire(reservation.id);
         inventoryReleased = true;
 
       } else if (reservation.status === InventoryReservationStatus.COMMITTED) {
-        // COMMITTED → RELEASED: restore onHand AND decrement committed (P0-2 fix)
-        await this.prisma.$transaction(async (txClient) => {
-          const result = await txClient.inventoryReservation.updateMany({
-            where: { id: reservation.id, status: InventoryReservationStatus.COMMITTED },
-            data:  { status: InventoryReservationStatus.RELEASED, releasedAt: new Date() },
-          });
-          if (result.count === 0) return; // concurrent release — idempotent
-
-          for (const item of reservation.items) {
-            const updated = await txClient.inventoryLevel.updateMany({
-              where: {
-                storeId:   reservation.storeId,
-                productId: item.productId,
-                variantId: item.variantId ?? null,
-                committed: { gte: item.quantity }, // lower-bound guard (P0-2)
-              },
-              data: {
-                onHand:    { increment: item.quantity }, // restore physical stock (P0-2)
-                committed: { decrement: item.quantity },
-              },
-            });
-            if (updated.count === 0) {
-              throw new Error(
-                `Inventory lower-bound guard (committed) blocked release: ` +
-                `product=${item.productId} qty=${item.quantity} reservation=${reservation.id}`,
-              );
-            }
-          }
-        });
+        // Order's units were taken from stock — restock them (COMMITTED → RELEASED).
+        await this.reservations.restockCommitted(reservation.id);
         inventoryReleased = true;
       }
     }

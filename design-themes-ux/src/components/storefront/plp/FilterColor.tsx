@@ -1,5 +1,6 @@
 import React from 'react';
 import { UI } from '@/themes/aurus/constants';
+import { FILTER_ACCENT, FILTER_MUTED } from './filterTokens';
 import type { FacetOption } from '@/lib/storefrontApi';
 
 /** Best-effort CSS color for known color-name facet values; falls back to a neutral swatch. */
@@ -15,7 +16,7 @@ interface FilterColorProps {
 }
 
 const FilterColor: React.FC<FilterColorProps> = ({ options, onToggle }) => (
-  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, padding: '12px 0 16px' }}>
+  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '13px 0 18px' }}>
     {options.map((opt) => {
       const swatch = COLOR_SWATCH[opt.label] ?? '#D4D4D4';
       return (
@@ -25,12 +26,13 @@ const FilterColor: React.FC<FilterColorProps> = ({ options, onToggle }) => (
           disabled={opt.disabled}
           title={`${opt.label} (${opt.count})`}
           style={{
-            width: 30, height: 30, borderRadius: '50%', background: swatch,
-            border: opt.selected ? '2.5px solid #7C3AED' : '1.5px solid #E5E5E5',
+            width: 29, height: 29, borderRadius: '50%', background: swatch,
+            border: opt.selected ? `2px solid ${FILTER_ACCENT}` : '1.5px solid #E1EBE7',
             boxShadow: opt.selected ? '0 0 0 2px #fff inset' : undefined,
             cursor: opt.disabled ? 'default' : 'pointer',
             opacity: opt.disabled ? 0.35 : 1,
             position: 'relative', flexShrink: 0,
+            transition: 'border-color 0.12s',
           }}
         >
           {opt.selected && (
@@ -41,7 +43,7 @@ const FilterColor: React.FC<FilterColorProps> = ({ options, onToggle }) => (
         </button>
       );
     })}
-    {options.length === 0 && <span style={{ fontSize: 12, color: '#999', ...UI }}>No colors available</span>}
+    {options.length === 0 && <span style={{ fontSize: 12, color: FILTER_MUTED, ...UI }}>No colors available</span>}
   </div>
 );
 

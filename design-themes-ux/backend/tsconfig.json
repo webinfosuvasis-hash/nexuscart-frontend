@@ -9,8 +9,16 @@
     "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
+    "rootDir": "./src",
     "baseUrl": "./",
-    "incremental": true,
+    // Deliberately off: nest-cli.json sets deleteOutDir=true, which wipes
+    // dist/ on every build without touching tsconfig.tsbuildinfo. With
+    // incremental on, tsc then reads that surviving cache, sees unchanged
+    // source hashes, and silently skips re-emitting into the now-empty
+    // dist/ — every build after the first becomes a no-op that reports
+    // success but writes nothing. start:dev's own watch mode doesn't depend
+    // on this flag, only `nest build`/`start:prod` do.
+    "incremental": false,
     "skipLibCheck": true,
     "strictNullChecks": false,
     "noImplicitAny": false,
@@ -24,6 +32,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    "prisma/scripts"
+    "prisma"
   ]
 }

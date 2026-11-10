@@ -32,8 +32,13 @@ export interface CheckoutInventoryResult {
 }
 
 export interface ICheckoutInventoryEngine {
+  /**
+   * `checkoutId`, when given, credits units that checkout itself already
+   * holds (InventoryReservationService) — they were taken out of stock for it.
+   */
   validateBatch(
-    storeId: string,
-    inputs:  CheckoutInventoryInput[],
+    storeId:     string,
+    inputs:      CheckoutInventoryInput[],
+    checkoutId?: string,
   ): Promise<CheckoutInventoryResult[]>;
 }

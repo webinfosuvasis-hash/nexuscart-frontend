@@ -1,7 +1,11 @@
 import React, {
   createContext, useContext, useCallback, useEffect, useMemo, useState,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import * as api from '@/lib/customerAuthApi';
+import { rotateCartSession } from '@/lib/cartApi';
+import { CART_QUERY_KEY } from '@/hooks/useCart';
+import { resetCheckoutPrompt } from '@/lib/checkoutPrompt';
 
 type AuthStatus = 'bootstrapping' | 'authenticated' | 'unauthenticated';
 
@@ -20,6 +24,21 @@ const CustomerAuthContext = createContext<CustomerAuthContextValue | undefined>(
 export const CustomerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [customer, setCustomer] = useState<api.AuthenticatedCustomer | null>(null);
   const [status, setStatus] = useState<AuthStatus>('bootstrapping');
+  const queryClient = useQueryClient();
+
+  // Logging out also ends this browser's cart session: on a shared device the
+  // next shopper must not see the previous one's bag, address or checkout.
+  // Best-effort — a failed rotation never blocks the logout itself.
+  const endCartSession = useCallback(async () => {
+    try {
+      await rotateCartSession();
+    } catch {
+      // network/backend hiccup — the account session is still cleared below
+    }
+    resetCheckoutPrompt();
+    queryClient.removeQueries({ queryKey: CART_QUERY_KEY });
+    await queryClient.invalidateQueries({ queryKey: CART_QUERY_KEY });
+  }, [queryClient]);
 
   // Silent session restore on first mount — the access token lives only in
   // memory, so a full page reload always starts here.
@@ -59,7 +78,8 @@ export const CustomerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
     api.clearTokens();
     setCustomer(null);
     setStatus('unauthenticated');
-  }, []);
+    await endCartSession();
+  }, [endCartSession]);
 
   const logoutAll = useCallback(async () => {
     try {
@@ -70,7 +90,8 @@ export const CustomerAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
     api.clearTokens();
     setCustomer(null);
     setStatus('unauthenticated');
-  }, []);
+    await endCartSession();
+  }, [endCartSession]);
 
   const value = useMemo<CustomerAuthContextValue>(() => ({
     customer,

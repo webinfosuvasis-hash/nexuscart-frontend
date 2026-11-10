@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronDown, X, SlidersHorizontal } from 'lucide-react';
 import AurusHeader from './aurus/AurusHeader';
+import AurusFooter from './aurus/AurusFooter';
+import CategoryHero from './aurus/CategoryHero';
 import { UI } from './aurus/constants';
 import { useFilters } from '@/hooks/useFilters';
 import { useProductListing } from '@/hooks/useProductListing';
@@ -11,10 +13,9 @@ import SelectedFilters from '@/components/storefront/plp/SelectedFilters';
 import SortDropdown from '@/components/storefront/plp/SortDropdown';
 import ProductGrid from '@/components/storefront/plp/ProductGrid';
 import Pagination from '@/components/storefront/plp/Pagination';
+import { FILTER_ACCENT, FILTER_HAIRLINE, FILTER_INK, FILTER_SURFACE } from '@/components/storefront/plp/filterTokens';
 import { ApiError, type SortOption } from '@/lib/storefrontApi';
 import { absoluteUrl } from '@/lib/seo';
-
-const PINK = '#E91E8C';
 
 export interface AurusListingProps {
   /** Scopes the listing to a single category — present on /category/:categorySlug (and legacy /jewellery/:category). */
@@ -72,6 +73,15 @@ const AurusListing: React.FC<AurusListingProps> = ({ categorySlug, brandSlug, co
     : filters.q ? `Search: "${filters.q}"`
     : 'All Products');
 
+  // Prefers real category copy from the API; falls back to a generic
+  // editorial line keyed off which kind of listing this is.
+  const heroDescription = data?.category?.description
+    ?? (collectionSlug ? `The full ${pageTitle} collection, curated for you.`
+    : brandSlug ? `Every ${pageTitle} piece, filtered exactly how you like it.`
+    : filters.q ? `Refine your results for "${filters.q}" using the filters below.`
+    : categorySlug ? `Every piece in ${pageTitle}, filtered exactly how you like it.`
+    : 'The full edit — filtered, sorted, and ready to shop.');
+
   React.useEffect(() => {
     if (!onMetaChange) return;
     onMetaChange({
@@ -82,45 +92,36 @@ const AurusListing: React.FC<AurusListingProps> = ({ categorySlug, brandSlug, co
   }, [data?.category, pageTitle, onMetaChange]);
 
   return (
-    <div className="min-h-screen bg-white pb-16 lg:pb-0" style={UI}>
+    <div className="min-h-screen bg-gradient-to-b from-[#F7FBFA] via-white to-white pb-16 lg:pb-0" style={UI}>
       <AurusHeader
         searchQuery={searchInput}
         onSearchChange={setSearchInput}
         onSearchSubmit={(q) => filterState.setSearch(q)}
       />
 
-      {/* Breadcrumb */}
-      <div className="bg-[#F5F3F8] border-b border-gray-200 py-6">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-5">
-          <div className="flex items-baseline gap-2.5">
-            <h1 className="text-[17px] font-bold text-gray-900" style={UI}>{pageTitle}</h1>
-            {pagination && <span className="text-[14px] text-gray-500 font-normal" style={UI}>{pagination.total} Designs</span>}
-          </div>
-          <div className="flex items-center gap-1 mt-0.5 text-[10px] text-gray-400 tracking-[0.08em] uppercase" style={UI}>
-            {breadcrumbs.map((bc, i) => (
-              <React.Fragment key={bc.url}>
-                {i > 0 && <span className="text-gray-300">&gt;</span>}
-                {i === breadcrumbs.length - 1
-                  ? <span>{bc.label}</span>
-                  : <Link to={bc.url} className="hover:text-purple-700 transition-colors">{bc.label}</Link>}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      </div>
+      {!isError && (
+        <CategoryHero
+          title={pageTitle}
+          description={heroDescription}
+          breadcrumbs={breadcrumbs}
+          total={pagination?.total}
+          brandCount={facets?.brand.length}
+          priceFrom={facets?.price.min}
+        />
+      )}
 
       {/* Main layout: sidebar + content */}
       <div className="max-w-[1400px] mx-auto px-4 sm:px-5 pb-16 flex gap-7">
 
         <aside className="hidden lg:block w-[240px] flex-shrink-0">
-          <div className="sticky top-[93px] pt-7">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 16 }}>
+          <div className="sticky top-[93px] pt-8">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18, borderBottom: `1px solid ${FILTER_HAIRLINE}` }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#111111', textTransform: 'uppercase', letterSpacing: '0.06em', ...UI }}>
-                  FILTERS
+                <span style={{ fontSize: 13, fontWeight: 700, color: FILTER_INK, textTransform: 'uppercase', letterSpacing: '0.1em', ...UI }}>
+                  Filters
                 </span>
                 {filterState.totalActive > 0 && (
-                  <span style={{ background: '#EEEEEE', color: '#333333', fontSize: 11, fontWeight: 600, borderRadius: 3, padding: '1px 6px', ...UI }}>
+                  <span style={{ background: FILTER_SURFACE, color: FILTER_ACCENT, fontSize: 11, fontWeight: 700, borderRadius: 20, padding: '1.5px 8px', ...UI }}>
                     {filterState.totalActive}
                   </span>
                 )}
@@ -128,9 +129,9 @@ const AurusListing: React.FC<AurusListingProps> = ({ categorySlug, brandSlug, co
               {filterState.totalActive > 0 && (
                 <button
                   onClick={filterState.clearAll}
-                  style={{ fontSize: 11, color: PINK, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', ...UI }}
+                  style={{ fontSize: 11, color: FILTER_ACCENT, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', ...UI }}
                 >
-                  CLEAR ALL
+                  Clear All
                 </button>
               )}
             </div>
@@ -203,6 +204,8 @@ const AurusListing: React.FC<AurusListingProps> = ({ categorySlug, brandSlug, co
         </div>
       </div>
 
+      <AurusFooter />
+
       {/* Mobile filter drawer */}
       {mobileSidebarOpen && (
         <>
@@ -254,6 +257,7 @@ const AurusListing: React.FC<AurusListingProps> = ({ categorySlug, brandSlug, co
           <select
             value={filterState.filters.sortBy ?? 'featured'}
             onChange={(e) => filterState.setSort(e.target.value as SortOption)}
+            aria-label="Sort products"
             className="absolute inset-0 opacity-0 cursor-pointer w-full"
           >
             {sortOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

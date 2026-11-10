@@ -1,9 +1,9 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
-import { JwtAuthGuard }  from '@/common/guards/jwt-auth.guard';
 import { ComponentKind } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard)
+// Authenticated by the global JwtAuthGuard. Not re-applied here: a controller-level
+// JwtAuthGuard re-runs passport and replaces the store-scoped principal set by StoreContextGuard.
 @Controller('content/definitions')
 export class DefinitionsController {
   constructor(private readonly prisma: PrismaService) {}

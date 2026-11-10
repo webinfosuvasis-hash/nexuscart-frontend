@@ -7,6 +7,10 @@ import {
   RefreshCw, Award, Clock, ShoppingBag, ChevronRight, Check, Loader2, AlertCircle,
 } from 'lucide-react';
 import { useCart, useUpdateCartItem, useRemoveCartItem, useClearCart, useApplyPromotion, useRemovePromotion } from '@/hooks/useCart';
+import { useAuth } from '@/context/CustomerAuthContext';
+import GuestCheckoutPrompt from '@/components/storefront/checkout/GuestCheckoutPrompt';
+import { CHECKOUT_PATH } from '@/lib/authRedirect';
+import { hasSeenCheckoutPrompt, markCheckoutPromptSeen } from '@/lib/checkoutPrompt';
 
 const UI = { fontFamily: 'system-ui, -apple-system, sans-serif' };
 
@@ -33,7 +37,7 @@ const TrustBar: React.FC = () => (
             <Icon className="w-[22px] h-[22px] text-gray-500 flex-shrink-0" strokeWidth={1.5}/>
             <div>
               <p className="text-[13px] font-semibold text-gray-700 leading-none">{title}</p>
-              {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+              {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
             </div>
           </div>
         ))}
@@ -57,12 +61,12 @@ const CartHeader: React.FC<{
   navigate: ReturnType<typeof useNavigate>;
 }> = ({ activeTab, setActiveTab, itemCount, navigate }) => (
   <header className="bg-white border-b border-gray-200 sticky top-0 z-40" style={UI}>
-    <div className="px-6 h-[54px] flex items-center gap-4">
+    <div className="px-4 sm:px-6 h-[54px] flex items-center gap-3 sm:gap-4">
       <button onClick={() => navigate(-1)} className="text-gray-600 hover:text-purple-700 transition-colors flex-shrink-0" aria-label="Go back">
         <ArrowLeft className="w-5 h-5"/>
       </button>
 
-      <Link to="/jewellery/rings" className="w-8 h-8 rounded-full border-2 border-purple-600 flex items-center justify-center flex-shrink-0 overflow-hidden">
+      <Link to="/jewellery" aria-label="Aurus — continue shopping" className="w-8 h-8 rounded-full border-2 border-purple-600 flex items-center justify-center flex-shrink-0 overflow-hidden">
         <div className="grid grid-cols-3 gap-[2px] p-1">
           {[...Array(9)].map((_, i) => (
             <div key={i} className={`w-[4px] h-[4px] rounded-full ${[0,2,4,6,8].includes(i) ? 'bg-purple-700' : 'bg-purple-300'}`}/>
@@ -74,7 +78,7 @@ const CartHeader: React.FC<{
         <div className="inline-flex border border-gray-300 rounded-full overflow-hidden text-[13px]">
           <button
             onClick={() => setActiveTab('bag')}
-            className="px-6 py-[7px] font-medium transition-all whitespace-nowrap"
+            className="px-3 sm:px-6 py-[7px] font-medium transition-all whitespace-nowrap"
             style={activeTab === 'bag'
               ? { background: 'linear-gradient(90deg,#9333EA,#7B22F9)', color: '#fff' }
               : { background: '#fff', color: '#555' }}
@@ -84,7 +88,7 @@ const CartHeader: React.FC<{
           </button>
           <button
             onClick={() => setActiveTab('trial')}
-            className="px-6 py-[7px] font-medium transition-all whitespace-nowrap"
+            className="px-3 sm:px-6 py-[7px] font-medium transition-all whitespace-nowrap"
             style={activeTab === 'trial'
               ? { background: 'linear-gradient(90deg,#9333EA,#7B22F9)', color: '#fff' }
               : { background: '#fff', color: '#555' }}
@@ -109,6 +113,7 @@ const CartHeader: React.FC<{
 ═══════════════════════════════════════════════════════════════════════════════ */
 const AurusCart: React.FC = () => {
   const navigate = useNavigate();
+  const { status: authStatus } = useAuth();
 
   const { data: cart, isLoading, isError, refetch } = useCart();
   const { mutate: updateItem, isPending: updatingItem } = useUpdateCartItem();
@@ -123,6 +128,7 @@ const AurusCart: React.FC = () => {
   const [showPincodeInput,   setShowPincodeInput]   = useState(false);
   const [couponOpen,         setCouponOpen]         = useState(false);
   const [couponInput,        setCouponInput]        = useState('');
+  const [accountPromptOpen,  setAccountPromptOpen]  = useState(false);
 
   const items   = cart?.items ?? [];
   const totals  = cart?.totals;
@@ -172,7 +178,7 @@ const AurusCart: React.FC = () => {
           <ShoppingBag className="w-14 h-14 text-purple-200 mb-4" aria-hidden="true"/>
           <h2 className="text-[20px] font-semibold text-gray-800 mb-2">Your Shopping Bag is Empty</h2>
           <p className="text-[13px] text-gray-500 mb-6">Looks like you haven't added anything yet.</p>
-          <Link to="/jewellery/rings" className="bg-purple-700 text-white px-8 py-2.5 text-[13px] font-bold tracking-wide hover:bg-purple-800 transition-colors">
+          <Link to="/jewellery" className="bg-purple-700 text-white px-8 py-2.5 text-[13px] font-bold tracking-wide hover:bg-purple-800 transition-colors">
             CONTINUE SHOPPING
           </Link>
         </div>
@@ -198,11 +204,12 @@ const AurusCart: React.FC = () => {
       )}
 
       <div className="flex-1 w-full">
-        <div className="max-w-[1280px] mx-auto px-6 pt-[48px] pb-12">
-          <div className="flex gap-8 items-start">
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 lg:pt-[48px] pb-12">
+          {/* Stacks below lg — a fixed-width summary beside the items overflowed phones and clipped PLACE ORDER. */}
+          <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 lg:items-start">
 
             {/* ═══ LEFT — Cart Items ══════════════════════════════════════════ */}
-            <div className="flex-1 min-w-0 space-y-3">
+            <div className="w-full lg:flex-1 min-w-0 space-y-3">
 
               {/* Video-call banner */}
               <div
@@ -216,7 +223,7 @@ const AurusCart: React.FC = () => {
                   <p className="text-[14px] font-bold leading-none mb-1" style={{ color: '#004D40' }}>See it Before You Buy It</p>
                   <p className="text-[12px]" style={{ color: '#00695C' }}>Experience our designs in detail via video call</p>
                 </div>
-                <button className="flex-shrink-0 text-white text-[11px] font-bold tracking-[0.12em] uppercase px-5 py-2 rounded" style={{ background: '#00897B' }}>
+                <button className="flex-shrink-0 text-white text-[11px] font-bold tracking-[0.12em] uppercase px-5 py-2 rounded" style={{ background: '#00796B' }}>
                   SEE IT LIVE
                 </button>
               </div>
@@ -273,17 +280,17 @@ const AurusCart: React.FC = () => {
                       <div className="flex items-baseline gap-2 mt-2 flex-wrap">
                         <span className="text-[15px] font-bold text-gray-900">{inr(item.lineTotal)}</span>
                         {item.comparePrice && item.comparePrice > item.unitPrice && (
-                          <span className="text-[13px] text-gray-400 line-through">{inr(item.comparePrice * item.quantity)}</span>
+                          <span className="text-[13px] text-gray-500 line-through">{inr(item.comparePrice * item.quantity)}</span>
                         )}
                         {item.lineDiscount > 0 && (
-                          <span className="text-[12px] font-bold" style={{ color: '#E91E8C' }}>
+                          <span className="text-[12px] font-bold" style={{ color: '#C2185B' }}>
                             Save {inr(item.lineDiscount)}
                           </span>
                         )}
                       </div>
 
                       {/* SKU */}
-                      <p className="text-[11px] text-gray-400 mt-0.5 uppercase tracking-wide">{item.sku}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5 uppercase tracking-wide">{item.sku}</p>
 
                       {/* Quantity controls */}
                       <div className="flex items-center justify-between mt-3">
@@ -314,7 +321,7 @@ const AurusCart: React.FC = () => {
                             </button>
                           </div>
                         </div>
-                        <button className="text-[12.5px] underline underline-offset-2" style={{ color: '#E91E8C' }}>
+                        <button className="text-[12.5px] underline underline-offset-2" style={{ color: '#C2185B' }}>
                           Check Delivery Date
                         </button>
                       </div>
@@ -344,7 +351,7 @@ const AurusCart: React.FC = () => {
                   <button
                     onClick={() => clearCart()}
                     disabled={clearingCart || updatingItem || removingItem}
-                    className="text-[12px] text-gray-400 hover:text-red-500 transition-colors underline underline-offset-2 disabled:opacity-40"
+                    className="text-[12px] text-gray-600 hover:text-red-500 transition-colors underline underline-offset-2 disabled:opacity-40"
                   >
                     {clearingCart ? 'Clearing…' : 'Clear cart'}
                   </button>
@@ -353,7 +360,7 @@ const AurusCart: React.FC = () => {
             </div>
 
             {/* ═══ RIGHT — Order Summary ═══════════════════════════════════ */}
-            <div className="flex-shrink-0 space-y-3" style={{ width: 360, marginTop: 24 }}>
+            <div className="w-full lg:w-[360px] flex-shrink-0 space-y-3 lg:mt-6">
 
               {/* Apply Coupon */}
               <div className="rounded-xl overflow-hidden" style={{ background: '#EDE9FE' }}>
@@ -429,7 +436,7 @@ const AurusCart: React.FC = () => {
                     <button
                       onClick={() => setShowPincodeInput((o) => !o)}
                       className="text-[12px] font-semibold hover:opacity-80 transition-opacity whitespace-nowrap"
-                      style={{ color: '#E91E8C' }}
+                      style={{ color: '#C2185B' }}
                     >
                       {showPincodeInput ? 'Cancel' : 'Enter Pincode'}
                     </button>
@@ -450,7 +457,7 @@ const AurusCart: React.FC = () => {
                       onClick={() => { if (pincode.length === 6) { setPincodeOk(true); setShowPincodeInput(false); } }}
                       disabled={pincode.length !== 6}
                       className="text-[11px] font-bold border rounded-lg px-3 py-1.5 disabled:opacity-40 transition-colors hover:border-pink-400"
-                      style={{ color: '#E91E8C', borderColor: '#E91E8C' }}
+                      style={{ color: '#C2185B', borderColor: '#C2185B' }}
                     >
                       Check
                     </button>
@@ -485,18 +492,18 @@ const AurusCart: React.FC = () => {
                     {totals.discount > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-gray-500">Discount</span>
-                        <span className="font-bold" style={{ color: '#00897B' }}>− {inr(totals.discount)}</span>
+                        <span className="font-bold" style={{ color: '#00796B' }}>− {inr(totals.discount)}</span>
                       </div>
                     )}
                     {totals.promotionDiscount > 0 && (
                       <div className="flex items-center justify-between">
                         <span className="text-gray-500">Coupon {cart?.couponCode && `(${cart.couponCode})`}</span>
-                        <span className="font-bold" style={{ color: '#00897B' }}>− {inr(totals.promotionDiscount)}</span>
+                        <span className="font-bold" style={{ color: '#00796B' }}>− {inr(totals.promotionDiscount)}</span>
                       </div>
                     )}
                     <div className="flex items-center justify-between">
                       <span className="text-gray-500">Shipping</span>
-                      <span className="font-semibold" style={{ color: '#00897B' }}>
+                      <span className="font-semibold" style={{ color: '#00796B' }}>
                         {totals.shippingCost === 0 ? 'Free' : inr(totals.shippingCost)}
                       </span>
                     </div>
@@ -523,14 +530,29 @@ const AurusCart: React.FC = () => {
                 className={`block w-full py-3.5 text-white text-[13.5px] font-black tracking-[0.14em] uppercase rounded-xl hover:opacity-90 active:scale-[0.98] transition-all text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${isLocked ? 'opacity-50 pointer-events-none' : ''}`}
                 style={{ background: 'linear-gradient(90deg,#9333EA 0%,#7B22F9 100%)', boxShadow: '0 4px 14px rgba(124,58,237,0.4)' }}
                 aria-disabled={isLocked}
-                onClick={(e) => { if (isLocked) e.preventDefault(); }}
+                onClick={(e) => {
+                  if (isLocked) { e.preventDefault(); return; }
+                  // Guests get the optional account prompt once per checkout
+                  // attempt; everyone else (incl. auth still restoring) goes
+                  // straight through, since checkout works either way.
+                  if (authStatus === 'unauthenticated' && !hasSeenCheckoutPrompt()) {
+                    e.preventDefault();
+                    markCheckoutPromptSeen();
+                    setAccountPromptOpen(true);
+                  }
+                }}
               >
                 {isLocked ? 'CHECKOUT IN PROGRESS' : 'PLACE ORDER'}
               </Link>
+              <GuestCheckoutPrompt
+                open={accountPromptOpen}
+                onOpenChange={setAccountPromptOpen}
+                onContinueAsGuest={() => navigate(CHECKOUT_PATH)}
+              />
 
               {/* Activity indicator */}
               {cart?.lastActivityAt && (
-                <p className="text-[10px] text-gray-400 text-center">
+                <p className="text-[10px] text-gray-600 text-center">
                   Last updated {new Date(cart.lastActivityAt).toLocaleTimeString()}
                 </p>
               )}

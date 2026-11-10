@@ -92,9 +92,12 @@ export class OrdersService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Cash on delivery is collected at the door: delivered means paid.
+      const codCollected =
+        status === 'DELIVERED' && order.paymentGatewayCode === 'cod' && order.paymentStatus === 'PENDING';
       const updated = await tx.order.update({
         where: { id },
-        data: { status: status as any },
+        data: { status: status as any, ...(codCollected ? { paymentStatus: 'PAID' as const } : {}) },
       });
       await tx.orderStatusHistory.create({
         data: { orderId: id, status: status as any, note },

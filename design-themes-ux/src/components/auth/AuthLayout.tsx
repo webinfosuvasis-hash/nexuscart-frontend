@@ -57,7 +57,7 @@ export const AuthField: React.FC<{
       className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-[13px] outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 transition-all"
       style={UI}
     />
-    {helperText && <p className="text-[11px] text-gray-400 mt-1">{helperText}</p>}
+    {helperText && <p className="text-[11px] text-gray-500 mt-1">{helperText}</p>}
   </div>
 );
 
@@ -83,4 +83,19 @@ export const AuthSubmitButton: React.FC<{
   >
     {isLoading ? loadingLabel : label}
   </button>
+);
+
+/**
+ * Shown on /login and /register when the customer arrived from checkout —
+ * signing in is optional, so the way back to guest checkout stays one click away.
+ */
+export const GuestCheckoutReturn: React.FC<{ redirect: string }> = ({ redirect }) => (
+  redirect === '/checkout' ? (
+    <div className="bg-purple-50 border border-purple-100 rounded-lg px-4 py-3 mb-5 text-[12.5px] text-gray-600">
+      Your bag is saved and you&apos;ll return to checkout after signing in.{' '}
+      <Link to="/checkout" className="text-purple-700 font-semibold hover:underline whitespace-nowrap">
+        Continue as guest instead
+      </Link>
+    </div>
+  ) : null
 );

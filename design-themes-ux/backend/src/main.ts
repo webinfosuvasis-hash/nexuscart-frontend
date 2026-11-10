@@ -20,6 +20,12 @@ async function bootstrap() {
     bodyParser: false, // we set a size-limited parser below
   });
 
+  // Trust the Nginx reverse proxy so req.secure reflects the real client-facing
+  // scheme (via X-Forwarded-Proto) instead of the always-plain-HTTP connection
+  // Node sees locally. Required for cart-session.middleware.ts's cookie to be
+  // Secure only when the request actually arrived over HTTPS.
+  app.set('trust proxy', 1);
+
   const config = app.get(ConfigService);
 
   // Validate critical secrets at startup — fail fast rather than silently running insecure
@@ -74,7 +80,7 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type', 'Authorization', 'X-Store-Id', 'X-Theme-Id',
-      'X-Session-Id', 'Idempotency-Key', 'X-Request-ID', 'X-Correlation-ID',
+      'Idempotency-Key', 'X-Request-ID', 'X-Correlation-ID',
       'X-Cart-Debug', 'traceparent',
     ],
   });
@@ -152,6 +158,8 @@ async function bootstrap() {
       .addTag('Customer Orders')
       .addTag('Customer Shipment Tracking')
       .addTag('Customer Cancellation & Refunds')
+      .addTag('Invoices')
+      .addTag('Customer Invoice')
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);

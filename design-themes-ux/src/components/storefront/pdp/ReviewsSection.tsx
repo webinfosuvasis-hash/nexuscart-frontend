@@ -25,14 +25,7 @@ const ReviewsSection: React.FC<ReviewsSectionProps> = ({ productId, rating, revi
       <div className="max-w-[1400px] mx-auto px-4 sm:px-5">
         <div className="flex items-center justify-between mb-7 flex-wrap gap-4">
           <h2 className="text-[22px] font-semibold text-gray-900" style={UI}>Customer Reviews</h2>
-          <button
-            disabled
-            title="Sign in to write a review"
-            className="border border-gray-300 text-gray-400 px-5 py-2.5 text-[12px] font-bold tracking-wide rounded-sm cursor-not-allowed"
-            style={UI}
-          >
-            WRITE A REVIEW
-          </button>
+          <p className="text-[12px] text-gray-500" style={UI}>Review submissions will be available in a future update.</p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-8 mb-8 pb-7 border-b border-gray-200">
@@ -53,7 +46,7 @@ const ReviewsSection: React.FC<ReviewsSectionProps> = ({ productId, rating, revi
                     <div className="flex-1 bg-gray-200 rounded-full h-2">
                       <div className="bg-[#F5A623] h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
                     </div>
-                    <span className="text-[11px] text-gray-400 w-8">{pct}%</span>
+                    <span className="text-[11px] text-gray-500 w-8">{pct}%</span>
                   </div>
                 );
               })}
@@ -93,7 +86,7 @@ const ReviewsSection: React.FC<ReviewsSectionProps> = ({ productId, rating, revi
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-gray-400" style={UI}>
+                        <span className="text-[11px] text-gray-500" style={UI}>
                           {new Date(rv.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                         </span>
                       </div>

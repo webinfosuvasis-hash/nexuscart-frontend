@@ -5,6 +5,7 @@ import { InventoryReservationStatus, OrderStatus, OutboxEventStatus, Prisma } fr
 import { PrismaService } from '@/prisma/prisma.service';
 import { PaymentService } from '@/modules/payment/payment.service';
 import { OrderCancellationService } from '../order-cancellation.service';
+import { InventoryReservationService } from '@/shared/inventory/inventory-reservation.service';
 
 // ---------------------------------------------------------------------------
 // Test data factories
@@ -99,7 +100,6 @@ function buildPrismaMock() {
     },
     paymentTransaction: { findFirst: jest.fn() },
     inventoryReservation: { updateMany: jest.fn() },
-    inventoryLevel:       { updateMany: jest.fn() },
     outboxEvent: {
       findFirst: jest.fn(),
       create:    jest.fn(),
@@ -124,6 +124,10 @@ describe('OrderCancellationService', () => {
   let service:     OrderCancellationService;
   let prisma:      ReturnType<typeof buildPrismaMock>;
   let paymentSvc:  { cancelPayment: jest.Mock; refundPayment: jest.Mock };
+  // Stock return is InventoryReservationService's job (atomic + status-guarded,
+  // covered in its own spec); this spec checks which release is chosen and
+  // that a failure aborts the cancellation.
+  let reservations: { expire: jest.Mock; restockCommitted: jest.Mock };
 
   beforeEach(async () => {
     prisma = buildPrismaMock();
@@ -131,12 +135,17 @@ describe('OrderCancellationService', () => {
       cancelPayment: jest.fn(),
       refundPayment: jest.fn(),
     };
+    reservations = {
+      expire:           jest.fn().mockResolvedValue(true),
+      restockCommitted: jest.fn().mockResolvedValue(true),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrderCancellationService,
         { provide: PrismaService,  useValue: prisma },
         { provide: PaymentService, useValue: paymentSvc },
+        { provide: InventoryReservationService, useValue: reservations },
       ],
     }).compile();
 
@@ -156,7 +165,6 @@ describe('OrderCancellationService', () => {
       .mockResolvedValueOnce({ ...order, status: OrderStatus.CANCELLED }); // final load
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
     prisma.outboxEvent.findFirst.mockResolvedValue(null);
@@ -192,7 +200,6 @@ describe('OrderCancellationService', () => {
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.paymentRefund.findMany.mockResolvedValue([]);     // no prior refunds
     prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
     prisma.refund.create.mockResolvedValue({ id: 'refund-db-1', status: 'COMPLETED' });
@@ -449,7 +456,7 @@ describe('OrderCancellationService', () => {
   // -------------------------------------------------------------------------
   // TEST-12: COMMITTED → RELEASED — both onHand increment and committed decrement
   // -------------------------------------------------------------------------
-  it('TEST-12: COMMITTED reservation releases onHand AND committed counters', async () => {
+  it("TEST-12: COMMITTED reservation puts the order's units back on sale", async () => {
     const order = makeOrder({ status: OrderStatus.PROCESSING });
     const tx    = makeTx('CAPTURED', {
       capturedPaise: 100000,
@@ -461,7 +468,6 @@ describe('OrderCancellationService', () => {
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.paymentRefund.findMany.mockResolvedValue([]);
     prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
     prisma.refund.create.mockResolvedValue({ id: 'r1', status: 'COMPLETED' });
@@ -474,28 +480,14 @@ describe('OrderCancellationService', () => {
 
     await service.cancelOrder(DEFAULT_INPUT);
 
-    // Must update inventoryLevel with BOTH onHand increment AND committed decrement
-    expect(prisma.inventoryLevel.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          onHand:    { increment: 2 },
-          committed: { decrement: 2 },
-        }),
-      }),
-    );
-
-    // Lower-bound guard on committed
-    expect(prisma.inventoryLevel.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ committed: { gte: 2 } }),
-      }),
-    );
+    expect(reservations.restockCommitted).toHaveBeenCalledWith(RES_ID);
+    expect(reservations.expire).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // TEST-13: RESERVED → EXPIRED — only reserved decrement, no onHand change
   // -------------------------------------------------------------------------
-  it('TEST-13: RESERVED reservation only decrements reserved (no onHand change)', async () => {
+  it('TEST-13: RESERVED (never committed) hold is expired, returning its units', async () => {
     const order = makeOrder({ status: OrderStatus.PENDING });
     const tx    = makeTx('PENDING', {
       reservation: makeReservation(InventoryReservationStatus.RESERVED),
@@ -505,7 +497,6 @@ describe('OrderCancellationService', () => {
       .mockResolvedValueOnce({ ...order, status: OrderStatus.CANCELLED });
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
     prisma.outboxEvent.findFirst.mockResolvedValue(null);
@@ -516,17 +507,14 @@ describe('OrderCancellationService', () => {
 
     await service.cancelOrder(DEFAULT_INPUT);
 
-    const invCall = prisma.inventoryLevel.updateMany.mock.calls[0][0];
-    // Only reserved is in data — NO onHand field
-    expect(invCall.data).toHaveProperty('reserved');
-    expect(invCall.data).not.toHaveProperty('onHand');
-    expect(invCall.data).not.toHaveProperty('committed');
+    expect(reservations.expire).toHaveBeenCalledWith(RES_ID);
+    expect(reservations.restockCommitted).not.toHaveBeenCalled();
   });
 
   // -------------------------------------------------------------------------
   // TEST-14: Lower-bound guard failure → transaction rolls back, Step 4 not called
   // -------------------------------------------------------------------------
-  it('TEST-14: Lower-bound guard failure propagates and aborts Step 4', async () => {
+  it('TEST-14: A stock-return failure propagates and aborts Step 4', async () => {
     const order = makeOrder({ status: OrderStatus.PROCESSING });
     const tx    = makeTx('CAPTURED', {
       capturedPaise: 100000,
@@ -536,27 +524,11 @@ describe('OrderCancellationService', () => {
     prisma.order.findFirst.mockResolvedValueOnce(order);
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.paymentRefund.findMany.mockResolvedValue([]);
-
-    // Step 3 $transaction: reservation lock succeeds, but inventoryLevel guard fails
-    let callCount = 0;
-    prisma.$transaction.mockImplementation(async (callback: any) => {
-      if (typeof callback === 'function') {
-        callCount++;
-        if (callCount === 1) {
-          // Step 3 — simulate lower-bound guard failure
-          prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-          prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 0 }); // guard fails
-          return callback(prisma); // will throw inside callback
-        }
-        return callback(prisma); // Step 4 (should NOT be reached)
-      }
-    });
+    reservations.restockCommitted.mockRejectedValue(new Error('Lock wait timeout exceeded'));
 
     paymentSvc.refundPayment.mockResolvedValue(makeRefundResult('COMPLETED'));
 
-    await expect(service.cancelOrder(DEFAULT_INPUT)).rejects.toThrow(
-      'Inventory lower-bound guard (committed) blocked release',
-    );
+    await expect(service.cancelOrder(DEFAULT_INPUT)).rejects.toThrow('Lock wait timeout exceeded');
 
     // Step 4 (order.updateMany) must NOT have been called
     expect(prisma.order.updateMany).not.toHaveBeenCalled();
@@ -576,9 +548,8 @@ describe('OrderCancellationService', () => {
       .mockResolvedValueOnce({ ...order, status: OrderStatus.CANCELLED });
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.paymentRefund.findMany.mockResolvedValue([]);
-    // Reservation lock returns 0 — concurrent call already released it
-    prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 0 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
+    // false — a concurrent call already returned these units
+    reservations.restockCommitted.mockResolvedValue(false);
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
     prisma.refund.create.mockResolvedValue({ id: 'r1', status: 'COMPLETED' });
@@ -592,8 +563,7 @@ describe('OrderCancellationService', () => {
     // Must not throw
     const result = await service.cancelOrder(DEFAULT_INPUT);
 
-    // inventoryLevel should NOT have been called (early return after count=0)
-    expect(prisma.inventoryLevel.updateMany).not.toHaveBeenCalled();
+    expect(reservations.restockCommitted).toHaveBeenCalledTimes(1);
     expect(result.inventoryReleased).toBe(true);
   });
 
@@ -612,7 +582,6 @@ describe('OrderCancellationService', () => {
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.paymentRefund.findMany.mockResolvedValue([]);
     prisma.inventoryReservation.updateMany.mockResolvedValue({ count: 1 });
-    prisma.inventoryLevel.updateMany.mockResolvedValue({ count: 1 });
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.orderStatusHistory.create.mockResolvedValue({});
     prisma.refund.create.mockResolvedValue({ id: 'r1', status: 'COMPLETED' });
@@ -689,21 +658,11 @@ describe('OrderCancellationService', () => {
     prisma.paymentTransaction.findFirst.mockResolvedValue(tx);
     prisma.paymentRefund.findMany.mockResolvedValue([]);
 
-    // Simulate the $transaction callback propagating the lower-bound error
-    prisma.$transaction.mockImplementation(async (callback: any) => {
-      if (typeof callback === 'function') {
-        // Simulate reservationLock succeeds, inventory guard fails
-        prisma.inventoryReservation.updateMany.mockResolvedValueOnce({ count: 1 });
-        prisma.inventoryLevel.updateMany.mockResolvedValueOnce({ count: 0 }); // guard fails → throws
-        return callback(prisma);
-      }
-    });
+    reservations.restockCommitted.mockRejectedValue(new Error('Inventory release failed'));
 
     paymentSvc.refundPayment.mockResolvedValue(makeRefundResult('COMPLETED'));
 
-    await expect(service.cancelOrder(DEFAULT_INPUT)).rejects.toThrow(
-      /Inventory lower-bound guard/,
-    );
+    await expect(service.cancelOrder(DEFAULT_INPUT)).rejects.toThrow(/Inventory release failed/);
 
     // Step 4 must not have run — order.updateMany never called with CANCELLED
     const cancellationCalls = prisma.order.updateMany.mock.calls.filter(

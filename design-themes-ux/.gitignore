@@ -29,3 +29,8 @@ dist-ssr
 backend/.env
 backend/.env.*
 !backend/.env.example
+
+# E2E crawl artefacts
+e2e/crawl-report.json
+test-results/
+playwright-report/

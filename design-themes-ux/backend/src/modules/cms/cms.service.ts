@@ -1,10 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { CacheService } from '@/shared/cache/cache.service';
+import { CACHE_KEYS } from '@/shared/cache/cache.constants';
 import slugify from 'slugify';
 
 @Injectable()
 export class CmsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache:  CacheService,
+  ) {}
 
   // ─── Pages ───────────────────────────────────────────────────────────────────
 
@@ -95,7 +100,7 @@ export class CmsService {
 
   async createMenu(storeId: string, dto: any) {
     const { items, ...menuData } = dto;
-    return this.prisma.menu.create({
+    const created = await this.prisma.menu.create({
       data: {
         ...menuData,
         storeId,
@@ -103,6 +108,10 @@ export class CmsService {
       },
       include: { items: true },
     });
+    // Phase 9: invalidate the public storefront menu cache so a newly
+    // created menu is picked up within this request, not just after TTL.
+    await this.cache.del(CACHE_KEYS.menu(storeId, created.handle));
+    return created;
   }
 
   async updateMenu(storeId: string, id: string, dto: any) {
@@ -110,7 +119,7 @@ export class CmsService {
     if (!menu) throw new NotFoundException('Menu not found');
     const { items, ...menuData } = dto;
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (items) {
         await tx.menuItem.deleteMany({ where: { menuId: id, parentId: null } });
         for (const item of items) {
@@ -119,12 +128,20 @@ export class CmsService {
       }
       return tx.menu.update({ where: { id }, data: menuData, include: { items: true } });
     });
+    // Phase 9: invalidate both the pre- and post-update handle in case the
+    // save also renamed the handle a live menuHandle reference points at.
+    await Promise.all([
+      this.cache.del(CACHE_KEYS.menu(storeId, menu.handle)),
+      this.cache.del(CACHE_KEYS.menu(storeId, updated.handle)),
+    ]);
+    return updated;
   }
 
   async removeMenu(storeId: string, id: string) {
     const menu = await this.prisma.menu.findFirst({ where: { id, storeId } });
     if (!menu) throw new NotFoundException('Menu not found');
     await this.prisma.menu.delete({ where: { id } });
+    await this.cache.del(CACHE_KEYS.menu(storeId, menu.handle));
     return { message: 'Menu deleted' };
   }
 

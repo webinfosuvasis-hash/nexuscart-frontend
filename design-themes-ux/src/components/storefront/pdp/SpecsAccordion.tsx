@@ -42,7 +42,18 @@ const SpecsAccordion: React.FC<SpecsAccordionProps> = ({ sku, category, descript
         <li><span className="font-semibold text-gray-700">SKU:</span> {sku}</li>
         {category && <li><span className="font-semibold text-gray-700">Category:</span> {category}</li>}
         {shortDescription && <li><span className="font-semibold text-gray-700">Summary:</span> {shortDescription}</li>}
-        {description && <li><span className="font-semibold text-gray-700">Description:</span> {description}</li>}
+        {description && (
+          <li>
+            <span className="font-semibold text-gray-700">Description:</span>
+            {/* description is sanitized server-side (sanitizeProductDescription) before it
+                reaches this response — do not sanitize again here, and never interpolate
+                unsanitized HTML this way. */}
+            <div
+              className="prose prose-sm max-w-none mt-1 text-gray-600"
+              dangerouslySetInnerHTML={{ __html: description }}
+            />
+          </li>
+        )}
       </ul>
     </Acc>
 

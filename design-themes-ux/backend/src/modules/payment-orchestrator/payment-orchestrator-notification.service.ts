@@ -2,12 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@/prisma/prisma.service';
+import { maskEmail } from '@/shared/email/email.service';
+import { OrderConfirmationEmailService } from './order-confirmation-email.service';
+import { VendorOrderNotificationService } from '../vendors/vendor-order-notification.service';
 
 // ---------------------------------------------------------------------------
 // Payment-orchestration event listeners (INT-PO-1 … INT-PO-4)
 //
 // The OutboxProcessorService emits these events after each payment-orchestration
-// outbox record is persisted and ready to dispatch.  Handlers are READ-ONLY:
+// outbox record is persisted and ready to dispatch.  Handlers are READ-ONLY
+// (the one exception: ORDER_CREATED records an IdempotencyRecord claim so a
+// redelivered event never emails twice) —
 // they never modify Order, Payment, Checkout, Inventory, or Outbox state,
 // never acquire Redis locks, and never open database transactions.
 //
@@ -15,9 +20,16 @@ import { PrismaService } from '@/prisma/prisma.service';
 // EventEmitter2.emitAsync() back to OutboxProcessorService, which would mark
 // the outbox event FAILED and schedule a retry — incorrect for a notification
 // failure.  All exceptions are caught and logged.
+// The one deliberate exception: if queueing the vendor emails fails (a DB
+// error), ORDER_CREATED is rethrown so the outbox retries it. That is safe to
+// repeat — vendor queueing is deduped per (order, vendor) and an accepted
+// customer confirmation keeps its claim — and it runs after the customer send.
 //
-// EmailService integration is deferred.  Each handler resolves full
-// notification context and logs what would be sent.
+// ORDER_CREATED sends the real order confirmation email
+// (OrderConfirmationEmailService) and queues one email per vendor whose
+// products are on the order (VendorOrderNotificationService.fanOut — delivery
+// and retries run as separate VENDOR_ORDER_EMAIL outbox events). The other
+// handlers still only resolve context and log what would be sent (recipient masked).
 // ---------------------------------------------------------------------------
 
 interface NotificationContext {
@@ -43,11 +55,15 @@ export class PaymentOrchestratorNotificationService {
     private readonly prisma:  PrismaService,
     // Reserved for future EmailService configuration (SMTP host, sender address, etc.)
     private readonly config:  ConfigService, // eslint-disable-line @typescript-eslint/no-unused-vars
+    private readonly orderConfirmation: OrderConfirmationEmailService,
+    private readonly vendorNotifications: VendorOrderNotificationService,
   ) {}
 
   // ── INT-PO-1: ORDER_CREATED ───────────────────────────────────────────────
 
-  @OnEvent('ORDER_CREATED')
+  // suppressErrors: false — the deliberate fan-out rethrow (see header) must reach
+  // the outbox processor; @nestjs/event-emitter swallows listener errors by default.
+  @OnEvent('ORDER_CREATED', { suppressErrors: false })
   async handleOrderCreated(payload: Record<string, unknown>): Promise<void> {
     const storeId              = payload['storeId']              as string;
     const orderId              = payload['orderId']              as string;
@@ -60,26 +76,32 @@ export class PaymentOrchestratorNotificationService {
     );
 
     try {
-      const ctx = await this.resolveNotificationContext(storeId, orderId, 'ORDER_CREATED');
-      if (!ctx) return;
-
-      this.logger.log(
-        `[ORDER_CREATED] Would send email — subject="${ctx.template.subject}" ` +
-        `to=${ctx.customer.email} context={{ ` +
-        `customerName="${ctx.customer.name}", ` +
-        `orderNumber="${ctx.order.orderNumber}", ` +
-        `orderStatus="${ctx.order.status}", ` +
-        `orderTotal="${ctx.order.total}", ` +
-        `paymentStatus="${ctx.order.paymentStatus}", ` +
-        `currency="${ctx.storeSettings.currency}", ` +
-        `paymentTransactionId="${paymentTransactionId ?? 'N/A'}" }}`,
-      );
-      // TODO: inject EmailService and send transactional email
+      // Real delivery — see OrderConfirmationEmailService (dedupes redelivered
+      // events; reports "accepted" only when the SMTP server accepts it).
+      const outcome = await this.orderConfirmation.send(storeId, orderId);
+      this.logger.log(`ORDER_CREATED: order confirmation email outcome=${outcome} orderId=${orderId}`);
     } catch (err: unknown) {
       this.logger.error(
         `ORDER_CREATED handler error — storeId=${storeId} orderId=${orderId}: ` +
         `${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+
+    // Separate try: a customer-email failure must not stop vendor emails.
+    try {
+      const results = await this.vendorNotifications.fanOut(storeId, orderId);
+      if (results.length > 0) {
+        this.logger.log(
+          `ORDER_CREATED: vendor emails orderId=${orderId} ` +
+          results.map((r) => `${r.vendorId}=${r.outcome}`).join(' '),
+        );
+      }
+    } catch (err: unknown) {
+      this.logger.error(
+        `ORDER_CREATED vendor email queueing failed — storeId=${storeId} orderId=${orderId}: ` +
+        `${err instanceof Error ? err.message : String(err)} — event will be retried`,
+      );
+      throw err; // see header: safe, deduped redelivery
     }
   }
 
@@ -103,7 +125,7 @@ export class PaymentOrchestratorNotificationService {
 
       this.logger.log(
         `[PAYMENT_CAPTURED] Would send email — subject="${ctx.template.subject}" ` +
-        `to=${ctx.customer.email} context={{ ` +
+        `to=${maskEmail(ctx.customer.email)} context={{ ` +
         `customerName="${ctx.customer.name}", ` +
         `orderNumber="${ctx.order.orderNumber}", ` +
         `orderStatus="${ctx.order.status}", ` +
@@ -141,7 +163,7 @@ export class PaymentOrchestratorNotificationService {
 
       this.logger.log(
         `[CHECKOUT_COMPLETED] Would send email — subject="${ctx.template.subject}" ` +
-        `to=${ctx.customer.email} context={{ ` +
+        `to=${maskEmail(ctx.customer.email)} context={{ ` +
         `customerName="${ctx.customer.name}", ` +
         `orderNumber="${ctx.order.orderNumber}", ` +
         `orderStatus="${ctx.order.status}", ` +
@@ -177,7 +199,7 @@ export class PaymentOrchestratorNotificationService {
 
       this.logger.log(
         `[INVENTORY_COMMITTED] Would send email — subject="${ctx.template.subject}" ` +
-        `to=${ctx.customer.email} context={{ ` +
+        `to=${maskEmail(ctx.customer.email)} context={{ ` +
         `customerName="${ctx.customer.name}", ` +
         `orderNumber="${ctx.order.orderNumber}", ` +
         `orderStatus="${ctx.order.status}", ` +

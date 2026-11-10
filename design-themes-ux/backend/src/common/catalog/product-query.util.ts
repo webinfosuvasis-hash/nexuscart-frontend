@@ -1,7 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { PerfTimer } from '@/common/perf-timer.util';
+import type { CacheService } from '@/shared/cache/cache.service';
+import {
+  Breadcrumb, CategoryTreeNode,
+  loadCategoryTree, findCategoryInTree, collectDescendantIdsFromTree,
+} from './category-tree.util';
 
-export interface Breadcrumb { label: string; url: string }
+export type { Breadcrumb };
 
 /**
  * Shared product filter/sort/pagination building blocks for the storefront
@@ -64,6 +70,21 @@ export function needsComputedPass(filters: ProductListingFilters): boolean {
 }
 
 /**
+ * Optional side-channel passed into `buildProductWhere`:
+ *   - `cache`/`timer` are read (perf logging, Redis-backed category tree)
+ *   - `resolvedCategory`/`tree` are WRITTEN by `buildProductWhere` whenever a
+ *     `categorySlug` filter resolves, so the caller (e.g. the listing
+ *     endpoint building breadcrumbs + category metadata for its response)
+ *     can reuse that lookup instead of re-querying for the same category.
+ */
+export interface ProductWhereContext {
+  timer?: PerfTimer;
+  cache?: CacheService;
+  resolvedCategory?: CategoryTreeNode | null;
+  tree?: CategoryTreeNode[];
+}
+
+/**
  * Resolves slug-based scoping (category/brand/collection) to IDs and builds
  * the Phase 1 Prisma `where` clause.
  *
@@ -77,6 +98,7 @@ export async function buildProductWhere(
   prisma: PrismaClient,
   storeId: string,
   filters: ProductListingFilters,
+  ctx?: ProductWhereContext,
 ): Promise<Prisma.ProductWhereInput | null> {
   const where: Prisma.ProductWhereInput = {
     storeId,
@@ -90,12 +112,22 @@ export async function buildProductWhere(
   }
 
   if (filters.categorySlug?.trim()) {
-    const category = await prisma.category.findFirst({
-      where: { storeId, slug: filters.categorySlug.trim(), deletedAt: null },
-      select: { id: true },
-    });
+    // One query for the store's whole category set (Redis-cached — see
+    // loadCategoryTree) replaces what used to be a slug→id lookup plus a
+    // separate breadth-first *DB* walk for descendants (one round trip per
+    // tree depth level). Slug resolution and descendant-subtree collection
+    // are now both pure in-memory operations over that single result.
+    const tree = await loadCategoryTree(prisma, storeId, ctx?.cache, ctx?.timer);
+    const category = findCategoryInTree(tree, filters.categorySlug.trim());
     if (!category) throw new NotFoundException(`Category not found: ${filters.categorySlug.trim()}`);
-    where.categoryId = category.id;
+    if (ctx) { ctx.resolvedCategory = category; ctx.tree = tree; }
+    // Parent categories (e.g. "Women") are grouping nodes — real products are
+    // attached to their subcategories (e.g. "Sarees", "Lehengas"), not to the
+    // parent row itself. Filtering by the exact id alone made every parent
+    // category page show 0 products even though its subtree was fully
+    // stocked. Browsing a category now includes its whole descendant subtree.
+    const categoryIds = collectDescendantIdsFromTree(tree, category.id);
+    where.categoryId = categoryIds.length > 1 ? { in: categoryIds } : category.id;
   }
 
   if (filters.brandSlug?.trim()) {
@@ -247,19 +279,24 @@ export function parseJsonArray(jsonString: string | null | undefined): string[] 
 export async function buildBreadcrumbs(
   prisma: PrismaClient,
   category: { id: string; name: string; slug: string; parentId: string | null },
+  timer?: PerfTimer,
 ): Promise<Breadcrumb[]> {
-  const trail: Breadcrumb[] = [{ label: category.name, url: `/category/${category.slug}` }];
-  let parentId = category.parentId;
-  let depth = 0;
-  while (parentId && depth < 5) {
-    const parent = await prisma.category.findUnique({
-      where: { id: parentId },
-      select: { id: true, name: true, slug: true, parentId: true },
-    });
-    if (!parent) break;
-    trail.unshift({ label: parent.name, url: `/category/${parent.slug}` });
-    parentId = parent.parentId;
-    depth++;
-  }
+  const walk = async () => {
+    const trail: Breadcrumb[] = [{ label: category.name, url: `/category/${category.slug}` }];
+    let parentId = category.parentId;
+    let depth = 0;
+    while (parentId && depth < 5) {
+      const parent = await prisma.category.findUnique({
+        where: { id: parentId },
+        select: { id: true, name: true, slug: true, parentId: true },
+      });
+      if (!parent) break;
+      trail.unshift({ label: parent.name, url: `/category/${parent.slug}` });
+      parentId = parent.parentId;
+      depth++;
+    }
+    return trail;
+  };
+  const trail = timer ? await timer.time('breadcrumbs', walk) : await walk();
   return [{ label: 'Home', url: '/' }, ...trail];
 }

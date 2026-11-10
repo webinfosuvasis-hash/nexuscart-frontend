@@ -498,7 +498,6 @@ export class CartService {
     return {
       id:             cart.id,
       storeId:        cart.storeId,
-      sessionId:      cart.sessionId,
       customerId:     cart.customerId,
       status:         cart.status,
       version:        cart.version,

@@ -1,5 +1,5 @@
 import {
-  IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested,
+  IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -36,7 +36,8 @@ export class AddressDto {
   @IsString() @IsNotEmpty() @MaxLength(20)
   phone: string;
 
-  @IsString() @IsOptional() @MaxLength(255)
+  // Guest checkout's only contact channel, and handed to the payment gateway.
+  @IsEmail() @IsOptional() @MaxLength(255)
   email?: string;
 
   @IsString() @IsOptional()

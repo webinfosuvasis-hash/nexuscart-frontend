@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, PageHeader, Btn, Badge } from './ui';
+import { formatMoney } from '@/lib/money';
+import { useStoreCurrency } from '@/hooks/useStoreCurrency';
 import { useCustomers, useCustomerSegmentStats, useAwardPoints } from '@/hooks/useCustomers';
 
 const PAGE_SIZE = 20;
@@ -50,7 +52,8 @@ const Customers: React.FC = () => {
     });
   };
 
-  const fmtSpent = (v: any) => `$${Number(v).toLocaleString()}`;
+  const currency = useStoreCurrency();
+  const fmtSpent = (v: any) => formatMoney(v, currency, 0);
   const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
   return (
@@ -228,7 +231,7 @@ const Customers: React.FC = () => {
                 {[
                   { label: 'Orders', value: detail.totalOrders ?? 0, icon: ShoppingCart, color: 'text-indigo-600' },
                   { label: 'Total Spent', value: fmtSpent(detail.totalSpent), icon: TrendingUp, color: 'text-emerald-600' },
-                  { label: 'Avg Order', value: detail.totalOrders > 0 ? `$${(Number(detail.totalSpent) / detail.totalOrders).toFixed(0)}` : '—', icon: Star, color: 'text-amber-500' },
+                  { label: 'Avg Order', value: detail.totalOrders > 0 ? fmtSpent(Number(detail.totalSpent) / detail.totalOrders) : '—', icon: Star, color: 'text-amber-500' },
                 ].map((s) => (
                   <div key={s.label} className="bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 text-center">
                     <s.icon size={16} className={`${s.color} mx-auto mb-1`} />

@@ -15,6 +15,7 @@ function buildPrismaMock() {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     $transaction: jest.fn(),
+    $queryRaw:    jest.fn().mockResolvedValue([]),
   };
 }
 
@@ -69,38 +70,35 @@ describe('OutboxProcessorService', () => {
   // ─── claimBatch ───────────────────────────────────────────────────────────
 
   describe('claimBatch', () => {
+    // Optimistic two-phase claim (MariaDB has no SKIP LOCKED): SELECT candidates,
+    // then UPDATE … WHERE status = PENDING as a compare-and-swap.
     it('returns empty array when no PENDING events exist', async () => {
-      prisma.$transaction.mockImplementationOnce(async (fn: Function) => {
-        const txClient = {
-          $queryRaw: jest.fn().mockResolvedValue([]),
-          outboxEvent: { updateMany: jest.fn() },
-        };
-        return fn(txClient);
-      });
+      prisma.$queryRaw.mockResolvedValueOnce([]);
 
       const ids = await service.claimBatch();
+
       expect(ids).toEqual([]);
+      expect(prisma.outboxEvent.updateMany).not.toHaveBeenCalled();
     });
 
     it('marks claimed events as PROCESSING and increments attempts', async () => {
-      const updateMany = jest.fn().mockResolvedValue({ count: 2 });
-      prisma.$transaction.mockImplementationOnce(async (fn: Function) => {
-        const txClient = {
-          $queryRaw: jest.fn().mockResolvedValue([{ id: 'evt-1' }, { id: 'evt-2' }]),
-          outboxEvent: { updateMany },
-        };
-        return fn(txClient);
-      });
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'evt-1' }, { id: 'evt-2' }]);
+      prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 2 });
 
       const ids = await service.claimBatch();
 
       expect(ids).toEqual(['evt-1', 'evt-2']);
-      expect(updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: { in: ['evt-1', 'evt-2'] } },
-          data:  { status: OutboxEventStatus.PROCESSING, attempts: { increment: 1 } },
-        }),
-      );
+      expect(prisma.outboxEvent.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['evt-1', 'evt-2'] }, status: OutboxEventStatus.PENDING },
+        data:  { status: OutboxEventStatus.PROCESSING, attempts: { increment: 1 } },
+      });
+    });
+
+    it('returns empty array when another worker claimed the batch first (CAS count = 0)', async () => {
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'evt-1' }]);
+      prisma.outboxEvent.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(service.claimBatch()).resolves.toEqual([]);
     });
   });
 

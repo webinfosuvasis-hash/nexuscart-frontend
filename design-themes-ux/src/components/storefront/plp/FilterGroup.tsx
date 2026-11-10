@@ -2,9 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { UI } from '@/themes/aurus/constants';
 import FilterCheckbox from './FilterCheckbox';
+import { FILTER_ACCENT, FILTER_HAIRLINE, FILTER_INK, FILTER_MUTED } from './filterTokens';
 import type { FacetOption } from '@/lib/storefrontApi';
-
-const PINK = '#E91E8C';
 
 interface FilterGroupProps {
   label: string;
@@ -33,30 +32,35 @@ const FilterGroup: React.FC<FilterGroupProps> = ({ label, options, onToggle, ope
   if (options.length === 0) return null;
 
   return (
-    <div style={{ borderBottom: '1px solid #F0F0F0', paddingTop: 2 }}>
+    <div style={{ borderBottom: `1px solid ${FILTER_HAIRLINE}`, paddingTop: 3 }}>
       <button
         onClick={onToggleOpen}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 0 14px', background: 'none', border: 'none', cursor: 'pointer', ...UI,
+          padding: '17px 0 15px', background: 'none', border: 'none', cursor: 'pointer', ...UI,
         }}
       >
-        <span style={{ fontSize: 14, fontWeight: 600, color: '#222222', letterSpacing: '0.01em', ...UI }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: FILTER_INK, letterSpacing: '0.06em', textTransform: 'uppercase', ...UI }}>
           {label}
         </span>
-        {!open && <ChevronDown style={{ width: 15, height: 15, color: '#999999', flexShrink: 0 }} />}
+        <ChevronDown
+          style={{
+            width: 15, height: 15, color: FILTER_MUTED, flexShrink: 0,
+            transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s',
+          }}
+        />
       </button>
 
       {open && (
-        <div style={{ paddingBottom: 16 }}>
+        <div style={{ paddingBottom: 18 }}>
           {searchable && options.length > 8 && (
-            <div style={{ position: 'relative', marginBottom: 10 }}>
-              <Search style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: '#AAAAAA' }} />
+            <div style={{ position: 'relative', marginBottom: 12 }}>
+              <Search style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: FILTER_MUTED }} />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={`Search ${label.toLowerCase()}`}
-                style={{ width: '100%', padding: '7px 8px 7px 26px', fontSize: 12, border: '1px solid #E5E5E5', borderRadius: 6, outline: 'none', ...UI }}
+                style={{ width: '100%', padding: '8px 10px 8px 28px', fontSize: 12.5, border: `1px solid ${FILTER_HAIRLINE}`, borderRadius: 7, outline: 'none', color: FILTER_INK, background: '#FCFEFD', ...UI }}
               />
             </div>
           )}
@@ -72,13 +76,13 @@ const FilterGroup: React.FC<FilterGroupProps> = ({ label, options, onToggle, ope
             />
           ))}
           {visible.length === 0 && (
-            <p style={{ fontSize: 12, color: '#999', padding: '6px 0', ...UI }}>No matches</p>
+            <p style={{ fontSize: 12, color: FILTER_MUTED, padding: '6px 0', ...UI }}>No matches</p>
           )}
 
           {remaining > 0 && !showAll && !query.trim() && (
             <button
               onClick={() => setShowAll(true)}
-              style={{ marginTop: 6, fontSize: 12, color: PINK, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4, ...UI }}
+              style={{ marginTop: 8, fontSize: 12, color: FILTER_ACCENT, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5, ...UI }}
             >
               <span style={{ fontSize: 13 }}>↓</span> {remaining} More
             </button>
@@ -86,7 +90,7 @@ const FilterGroup: React.FC<FilterGroupProps> = ({ label, options, onToggle, ope
           {showAll && remaining > 0 && (
             <button
               onClick={() => setShowAll(false)}
-              style={{ marginTop: 6, fontSize: 12, color: PINK, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4, ...UI }}
+              style={{ marginTop: 8, fontSize: 12, color: FILTER_ACCENT, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 5, ...UI }}
             >
               <span style={{ fontSize: 13 }}>↑</span> Show Less
             </button>

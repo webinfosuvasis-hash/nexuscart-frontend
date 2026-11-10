@@ -2,13 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InventoryReservationStatus, PaymentTxStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { InventoryReservationService } from '../../shared/inventory/inventory-reservation.service';
 
 @Injectable()
 export class InventoryCleanupService {
   private readonly logger = new Logger(InventoryCleanupService.name);
   private isRunning = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reservations: InventoryReservationService,
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Cron: every 5 minutes
@@ -63,43 +67,14 @@ export class InventoryCleanupService {
           continue;
         }
 
-        // Release: optimistic-lock on RESERVED status to prevent double-release
-        // under concurrent cron invocations. Wrapped in a per-reservation try/catch
-        // so a single failure does not abort the rest of the batch.
+        // Release: status-guarded inside the service (RESERVED → EXPIRED) so
+        // concurrent cron runs / a racing cancellation return the units once.
+        // Per-reservation try/catch so one failure doesn't abort the batch.
         try {
-          await this.prisma.$transaction(async (txClient) => {
-            const result = await txClient.inventoryReservation.updateMany({
-              where: { id: reservation.id, status: InventoryReservationStatus.RESERVED },
-              data:  {
-                status:     InventoryReservationStatus.EXPIRED,
-                releasedAt: new Date(),
-              },
-            });
-            if (result.count === 0) return; // Concurrently released — idempotent
-
-            // Return the soft-held stock to the available pool.
-            // Only `reserved` is decremented: onHand was never physically removed
-            // (inventory was never shipped), and committed stays 0 (no fulfillment).
-            for (const item of reservation.items) {
-              const updated = await txClient.inventoryLevel.updateMany({
-                where: {
-                  storeId:   reservation.storeId,
-                  productId: item.productId,
-                  variantId: item.variantId ?? null,
-                  reserved:  { gte: item.quantity }, // lower-bound guard
-                },
-                data: { reserved: { decrement: item.quantity } },
-              });
-              // Throw so the entire transaction rolls back — reservation stays RESERVED.
-              // Partial release would permanently corrupt the reserved counter.
-              if (updated.count === 0) {
-                throw new Error(
-                  `Inventory lower-bound guard blocked release for product ${item.productId} ` +
-                  `qty=${item.quantity} in reservation ${reservation.id} — transaction rolled back`,
-                );
-              }
-            }
-          });
+          if (!(await this.reservations.expire(reservation.id))) {
+            skipped++;
+            continue;
+          }
 
           released++;
           this.logger.log(

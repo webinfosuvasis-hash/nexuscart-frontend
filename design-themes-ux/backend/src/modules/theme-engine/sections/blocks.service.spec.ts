@@ -2,6 +2,7 @@ import { Test, TestingModule }  from '@nestjs/testing';
 import {
   BadRequestException, ForbiddenException, NotFoundException,
 } from '@nestjs/common';
+import { BlockSettingsSanitizer } from './block-settings-sanitizer';
 import { SectionsService }  from './sections.service';
 import { PrismaService }    from '@/prisma/prisma.service';
 import { CacheService }     from '@/shared/cache/cache.service';
@@ -123,6 +124,7 @@ describe('SectionsService — Block methods (Sprint 4.5.1)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SectionsService,
+        BlockSettingsSanitizer,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CacheService,  useValue: mockCache  },
       ],

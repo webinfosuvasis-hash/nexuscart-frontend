@@ -1140,6 +1140,19 @@ describe('FulfillmentService', () => {
       expect(result.items).toBeDefined();
     });
 
+    // ── TEST-MD-COD: delivery settles cash on delivery ────────────────────────
+
+    it('TEST-MD-COD: marks a pending COD order PAID in the delivery transaction (prepaid untouched by the guard)', async () => {
+      setupHappyMD();
+
+      await service.markDelivered(BASE_MD);
+
+      expect(prismaMock.order.updateMany).toHaveBeenCalledWith({
+        where: { id: ORDER_ID, paymentGatewayCode: 'cod', paymentStatus: 'PENDING' },
+        data:  { paymentStatus: 'PAID' },
+      });
+    });
+
     // ── TEST-MD-2: explicit deliveredAt ───────────────────────────────────────
 
     it('TEST-MD-2: deliveredAt provided — used verbatim in shipment.update data', async () => {

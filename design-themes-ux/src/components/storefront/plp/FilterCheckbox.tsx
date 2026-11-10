@@ -1,7 +1,6 @@
 import React from 'react';
 import { UI } from '@/themes/aurus/constants';
-
-const PURPLE_COUNT = '#7B59C0';
+import { FILTER_ACCENT, FILTER_MUTED, FILTER_TEXT } from './filterTokens';
 
 interface FilterCheckboxProps {
   label:    string;
@@ -16,16 +15,20 @@ const FilterCheckbox: React.FC<FilterCheckboxProps> = ({ label, count, selected,
   <div
     onClick={disabled ? undefined : onToggle}
     style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      padding: '10px 0', cursor: disabled ? 'default' : 'pointer',
+      display: 'flex', alignItems: 'center', gap: 11,
+      padding: '9px 2px', margin: '0 -2px', borderRadius: 6,
+      cursor: disabled ? 'default' : 'pointer',
       opacity: disabled ? 0.4 : 1,
+      transition: 'background-color 0.12s',
     }}
+    onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.backgroundColor = '#F3F8F6'; }}
+    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
   >
     <div style={{
-      width: 18, height: 18, flexShrink: 0,
-      border: selected ? '2px solid #7C3AED' : '1.5px solid #CCCCCC',
-      borderRadius: 3,
-      background: selected ? '#7C3AED' : '#FFFFFF',
+      width: 17, height: 17, flexShrink: 0,
+      border: selected ? `1.5px solid ${FILTER_ACCENT}` : '1.5px solid #C9D6D0',
+      borderRadius: 4,
+      background: selected ? FILTER_ACCENT : '#FFFFFF',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       transition: 'all 0.12s',
     }}>
@@ -35,8 +38,8 @@ const FilterCheckbox: React.FC<FilterCheckboxProps> = ({ label, count, selected,
         </svg>
       )}
     </div>
-    <span style={{ fontSize: 13, color: '#444444', flex: 1, lineHeight: 1.5, ...UI }}>{label}</span>
-    <span style={{ fontSize: 11, color: PURPLE_COUNT, flexShrink: 0, ...UI }}>({count})</span>
+    <span style={{ fontSize: 13, color: FILTER_TEXT, flex: 1, lineHeight: 1.5, ...UI }}>{label}</span>
+    <span style={{ fontSize: 11, color: FILTER_MUTED, flexShrink: 0, ...UI }}>{count}</span>
   </div>
 );
 

@@ -7,7 +7,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   SUPER_ADMIN: ['*'],
   STORE_OWNER: [
     'products:*', 'categories:*', 'brands:*', 'collections:*',
-    'attributes:*', 'inventory:*', 'orders:*',
+    'attributes:*', 'inventory:*', 'orders:*', 'vendors:*',
     'customers:*', 'marketing:*', 'cms:*',
     'themes:*',   // ThemesModule (marketplace, install, activate)
     'theme:*',    // ThemeEngineModule (config, header, footer, sections, presets, preview)
@@ -17,6 +17,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   STORE_MANAGER: [
     'products:*', 'categories:*', 'brands:*', 'collections:*',
     'attributes:*', 'inventory:*', 'orders:*',
+    'vendors:read', // pick a vendor on the product form; managing vendors is owner-only
     'customers:read', 'marketing:read', 'cms:*',
     'theme:read', 'theme:update',   // can customize but not publish
     'analytics:read',

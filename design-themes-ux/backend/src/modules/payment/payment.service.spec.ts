@@ -282,6 +282,34 @@ describe('PaymentService', () => {
       expect(prisma.paymentTransaction.create).not.toHaveBeenCalled();
     });
 
+    it.each([PaymentTxStatus.FAILED, PaymentTxStatus.CANCELLED, PaymentTxStatus.EXPIRED])(
+      'opens a new, chained attempt when the previous one is %s',
+      async (status) => {
+        const deadTx = makeTx({ id: 'tx_dead', status, attemptNumber: 1 });
+        const freshTx = makeTx({ id: 'tx_fresh', attemptNumber: 2 });
+        prisma.idempotencyRecord.findUnique.mockResolvedValue({
+          key: 'payment:create:cs_001:idem_001',
+          storeId: 'store_001',
+          expiresAt: new Date(Date.now() + 60_000),
+          id: 'idem_record_1',
+          createdAt: new Date(),
+        });
+        prisma.paymentTransaction.findFirst.mockResolvedValue(deadTx);
+        prisma.paymentTransaction.create.mockResolvedValue(freshTx);
+
+        const result = await service.createPaymentAttempt(input);
+
+        expect(result).toBe(freshTx);
+        expect(prisma.paymentTransaction.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ attemptNumber: 2 }) }),
+        );
+        expect(prisma.paymentTransaction.update).toHaveBeenCalledWith({
+          where: { id: 'tx_dead' },
+          data: { supersededById: 'tx_fresh' },
+        });
+      },
+    );
+
     it('defaults currency to INR when not provided', async () => {
       const tx = makeTx();
       prisma.paymentTransaction.create.mockResolvedValue(tx);

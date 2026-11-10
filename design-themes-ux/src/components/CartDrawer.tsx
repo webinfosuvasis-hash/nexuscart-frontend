@@ -50,6 +50,9 @@ const CartDrawer: React.FC<Props> = ({ accentClass = 'bg-gray-900', fontClass = 
         role="dialog"
         aria-label="Shopping cart"
         aria-modal="true"
+        // Closed = slid off-screen but still mounted: hide it from screen readers and the tab order.
+        aria-hidden={!cartOpen}
+        {...(!cartOpen && { inert: '' })}
         className={`fixed top-0 right-0 h-full w-full max-w-md bg-white z-[120] shadow-2xl transition-transform duration-300 flex flex-col ${fontClass} ${cartOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
         {/* Header */}

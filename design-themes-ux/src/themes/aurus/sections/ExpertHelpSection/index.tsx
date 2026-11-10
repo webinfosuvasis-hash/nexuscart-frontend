@@ -6,9 +6,10 @@
  */
 
 import React from 'react';
-import { Store, Home, Video } from 'lucide-react';
+import { Store, Home, Video, type LucideIcon } from 'lucide-react';
 import { mergeWithDefaults, safeParseJson, validResult } from '../shared/pipeline';
 import { UI, SERIF } from '@/themes/aurus/constants';
+import { prefersDarkText, readableTextOn } from '../shared/contrast';
 import type {
   SectionRegistryEntry,
   SectionComponentProps,
@@ -62,21 +63,21 @@ const DEFAULT: ExpertHelpConfig = {
     headlineL1: 'Find your favourite designs',
     headlineL2: 'at a Store Nearby',
     ctaText: 'Find a Store',
-    ctaUrl: '/store-locator',
+    ctaUrl: '/pages/contact-us',
   },
   expertCard: {
     backgroundColor: '#4A1D96',
     label: 'Expert Help',
     headline: 'Unsure About What Design to Pick?',
     ctaText: 'Get Help →',
-    ctaUrl: '/services/try-at-home',
+    ctaUrl: '/pages/contact-us',
   },
   videoCard: {
     backgroundColor: '#1B4D3E',
     label: 'Live Video',
     headline: 'View Designs in Live Video Call',
     ctaText: 'Book Call →',
-    ctaUrl: '/services/video-call',
+    ctaUrl: '/pages/contact-us',
   },
 };
 
@@ -103,6 +104,55 @@ const resolveData: DataResolver<ExpertHelpConfig, ExpertHelpData> = async (
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
+
+/**
+ * Help / video service card. Its background is merchant-configured, so text
+ * and accent colours follow it: designed for a dark card, a pale one (as on
+ * the live store) gets dark text instead of invisible white.
+ */
+const ServiceCard: React.FC<{
+  background: string;
+  label: string;
+  headline: string;
+  ctaUrl: string;
+  ctaText: string;
+  Icon: LucideIcon;
+  accent: { onDark: string; onLight: string };
+}> = ({ background, label, headline, ctaUrl, ctaText, Icon, accent }) => {
+  const dark = prefersDarkText(background);
+  const accentColor = dark ? accent.onLight : accent.onDark;
+  return (
+    <div
+      className="rounded-sm p-7 flex items-center gap-5 flex-1"
+      style={{ background, color: readableTextOn(background) }}
+    >
+      <div className="flex-1">
+        <p
+          className="text-[10px] tracking-[0.3em] uppercase font-semibold"
+          style={{ ...UI, color: accentColor }}
+        >
+          {label}
+        </p>
+        <h4 className="text-lg font-semibold mt-1 leading-snug" style={UI}>
+          {headline}
+        </h4>
+        <a
+          href={ctaUrl}
+          className={`inline-block mt-3 border px-4 py-1.5 text-[11px] font-semibold rounded-sm transition-colors ${
+            dark ? 'border-gray-800/40 hover:bg-black/5' : 'border-white/50 hover:bg-white/20'}`}
+          style={UI}
+        >
+          {ctaText}
+        </a>
+      </div>
+      <Icon
+        className="w-10 h-10 flex-shrink-0"
+        strokeWidth={1}
+        style={{ color: accentColor }}
+      />
+    </div>
+  );
+};
 
 const ExpertHelpSection: React.FC<
   SectionComponentProps<ExpertHelpConfig, ExpertHelpData>
@@ -147,63 +197,24 @@ const ExpertHelpSection: React.FC<
 
         {/* Right: help + video service cards */}
         <div className="flex flex-col gap-4">
-          <div
-            className="text-white rounded-sm p-7 flex items-center gap-5 flex-1"
-            style={{ background: ec.backgroundColor }}
-          >
-            <div className="flex-1">
-              <p
-                className="text-[10px] tracking-[0.3em] uppercase font-semibold"
-                style={{ ...UI, color: 'rgba(216,180,254,1)' }}
-              >
-                {ec.label}
-              </p>
-              <h4 className="text-lg font-semibold mt-1 leading-snug" style={UI}>
-                {ec.headline}
-              </h4>
-              <a
-                href={ec.ctaUrl}
-                className="inline-block mt-3 border border-white/50 text-white hover:bg-white/20 px-4 py-1.5 text-[11px] font-semibold rounded-sm transition-colors"
-                style={UI}
-              >
-                {ec.ctaText}
-              </a>
-            </div>
-            <Home
-              className="w-10 h-10 flex-shrink-0"
-              strokeWidth={1}
-              style={{ color: 'rgba(216,180,254,1)' }}
-            />
-          </div>
-
-          <div
-            className="text-white rounded-sm p-7 flex items-center gap-5 flex-1"
-            style={{ background: vc.backgroundColor }}
-          >
-            <div className="flex-1">
-              <p
-                className="text-[10px] tracking-[0.3em] uppercase font-semibold"
-                style={{ ...UI, color: 'rgba(110,231,183,1)' }}
-              >
-                {vc.label}
-              </p>
-              <h4 className="text-lg font-semibold mt-1 leading-snug" style={UI}>
-                {vc.headline}
-              </h4>
-              <a
-                href={vc.ctaUrl}
-                className="inline-block mt-3 border border-white/50 text-white hover:bg-white/20 px-4 py-1.5 text-[11px] font-semibold rounded-sm transition-colors"
-                style={UI}
-              >
-                {vc.ctaText}
-              </a>
-            </div>
-            <Video
-              className="w-10 h-10 flex-shrink-0"
-              strokeWidth={1}
-              style={{ color: 'rgba(110,231,183,1)' }}
-            />
-          </div>
+          <ServiceCard
+            background={ec.backgroundColor}
+            label={ec.label}
+            headline={ec.headline}
+            ctaUrl={ec.ctaUrl}
+            ctaText={ec.ctaText}
+            Icon={Home}
+            accent={{ onDark: 'rgba(216,180,254,1)', onLight: '#7e22ce' }}
+          />
+          <ServiceCard
+            background={vc.backgroundColor}
+            label={vc.label}
+            headline={vc.headline}
+            ctaUrl={vc.ctaUrl}
+            ctaText={vc.ctaText}
+            Icon={Video}
+            accent={{ onDark: 'rgba(110,231,183,1)', onLight: '#047857' }}
+          />
         </div>
       </div>
     </section>

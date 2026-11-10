@@ -4,12 +4,23 @@ import {
 import { PrismaService } from '@/prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { QueryProductDto } from './dto/query-product.dto';
+import { VendorsService } from '../vendors/vendors.service';
 import slugify from 'slugify';
 import { v4 as uuid } from 'uuid';
 
+const VENDOR_SUMMARY = { id: true, name: true, status: true } as const;
+
+// products.tags / products.images are LongText columns holding a JSON array
+// (what the seed writes and the storefront's parseJsonArray reads). Prisma
+// rejects a JS array for a String column, so encode on every write.
+const toJsonText = (v: unknown): string => (typeof v === 'string' ? v : JSON.stringify(v ?? []));
+
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly vendors: VendorsService,
+  ) {}
 
   async findAll(storeId: string, query: QueryProductDto) {
     const {
@@ -40,6 +51,7 @@ export class ProductsService {
         orderBy: { [sortBy]: sortOrder },
         include: {
           category: { select: { id: true, name: true } },
+          vendor: { select: VENDOR_SUMMARY },
           variants: { select: { id: true, name: true, sku: true, price: true, stock: true } },
           _count: { select: { orderItems: true } },
         },
@@ -58,6 +70,7 @@ export class ProductsService {
       where: { id, storeId },
       include: {
         category: true,
+        vendor: { select: VENDOR_SUMMARY },
         variants: true,
         reviews: { take: 5, orderBy: { createdAt: 'desc' } },
         _count: { select: { orderItems: true, reviews: true } },
@@ -78,7 +91,8 @@ export class ProductsService {
     });
     if (existing) throw new ConflictException('Product with this slug or SKU already exists');
 
-    const { variants, ...productData } = dto;
+    const { variants, vendorId, ...productData } = dto;
+    const resolvedVendorId = await this.resolveVendorId(storeId, vendorId, null);
 
     // Ensure every variant has a unique SKU
     const preparedVariants = variants?.map((v, i) => ({
@@ -92,20 +106,23 @@ export class ProductsService {
         slug,
         sku,
         storeId,
-        tags: dto.tags ?? [],
-        images: dto.images ?? [],
+        vendorId: resolvedVendorId ?? null,
+        tags: toJsonText(dto.tags),
+        images: toJsonText(dto.images),
         seo: dto.seo ? JSON.stringify(dto.seo) : undefined,
         variants: preparedVariants?.length
           ? { create: preparedVariants }
           : undefined,
       } as any,
-      include: { variants: true, category: true },
+      include: { variants: true, category: true, vendor: { select: VENDOR_SUMMARY } },
     });
   }
 
   async update(storeId: string, id: string, dto: Partial<CreateProductDto>) {
     const existing = await this.findOne(storeId, id);
-    const { variants, ...productData } = dto;
+    const { variants, vendorId, ...productData } = dto;
+    // undefined = leave the vendor as is; null / '' = unassign
+    const resolvedVendorId = await this.resolveVendorId(storeId, vendorId, existing.vendorId);
 
     // Save a version snapshot before updating
     await this.saveVersion(id, existing, 'Admin');
@@ -129,10 +146,13 @@ export class ProductsService {
       data: {
         ...productData,
         seo: productData.seo ? JSON.stringify(productData.seo) : undefined,
+        ...(productData.tags !== undefined ? { tags: toJsonText(productData.tags) } : {}),
+        ...(productData.images !== undefined ? { images: toJsonText(productData.images) } : {}),
+        ...(resolvedVendorId !== undefined ? { vendorId: resolvedVendorId } : {}),
         updatedAt: new Date(),
         ...(variantsWrite ? { variants: variantsWrite } : {}),
       } as any,
-      include: { variants: true, category: true },
+      include: { variants: true, category: true, vendor: { select: VENDOR_SUMMARY } },
     });
   }
 
@@ -163,7 +183,12 @@ export class ProductsService {
 
   async duplicate(storeId: string, id: string) {
     const product = await this.findOne(storeId, id);
-    const { id: _id, createdAt, updatedAt, variants, ...rest } = product as any;
+    // Drop findOne()'s included relations (not writable as plain values) and ids/timestamps.
+    const {
+      id: _id, createdAt, updatedAt, variants, vendor, category: _c, reviews: _r, _count: _n, ...rest
+    } = product as any;
+    // A copy is a new product: it may not inherit a vendor that can no longer be assigned.
+    rest.vendorId = vendor?.status === 'ACTIVE' ? rest.vendorId : null;
     const newSlug = `${rest.slug}-copy-${Date.now()}`;
     const newSku = `${rest.sku}-COPY`;
 
@@ -211,7 +236,12 @@ export class ProductsService {
     if (!version || version.productId !== id) throw new Error('Version not found');
 
     const snapshot = version.snapshot as any;
-    const { id: _id, storeId: _sid, createdAt: _ca, variants: _v, ...data } = snapshot;
+    const { id: _id, storeId: _sid, createdAt: _ca, variants: _v, vendor: _vendor, ...data } = snapshot;
+    // The snapshot's vendor may since have been deleted — restore it only if it still exists here.
+    if (data.vendorId) {
+      const stillExists = await this.prisma.vendor.findFirst({ where: { id: data.vendorId, storeId }, select: { id: true } });
+      if (!stillExists) data.vendorId = null;
+    }
     return this.prisma.product.update({ where: { id }, data: { ...data, updatedAt: new Date() } });
   }
 
@@ -230,6 +260,21 @@ export class ProductsService {
       data: filtered,
     });
     return { updated: ids.length, message: `${ids.length} products updated` };
+  }
+
+  /**
+   * Turns the DTO's vendorId into what gets written: undefined (no change),
+   * null (unassigned), or an id verified to be an assignable vendor of this store.
+   */
+  private async resolveVendorId(
+    storeId: string,
+    vendorId: string | null | undefined,
+    currentVendorId: string | null,
+  ): Promise<string | null | undefined> {
+    if (vendorId === undefined) return undefined;
+    if (vendorId === null || vendorId.trim() === '') return null;
+    await this.vendors.assertAssignable(storeId, vendorId, currentVendorId);
+    return vendorId;
   }
 
   private async saveVersion(productId: string, snapshot: any, changedBy?: string, note?: string) {

@@ -8,8 +8,10 @@
  * customerPaymentApi.ts.
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000/api/v1';
-const STORE_ID = import.meta.env.VITE_STORE_ID || 'default';
+import { API_BASE_URL, STORE_ID as CONFIGURED_STORE_ID } from './env';
+
+const BASE_URL = API_BASE_URL;
+const STORE_ID = CONFIGURED_STORE_ID || 'default';
 
 // ─── Response types (match CheckoutSessionResponseDto exactly) ──────────────
 
@@ -104,7 +106,6 @@ export interface CheckoutSession {
   storeId: string;
   cartId: string;
   cartVersion: number;
-  sessionId: string;
   customerId: string | null;
   status: CheckoutStatus;
   addresses: CheckoutAddress[];

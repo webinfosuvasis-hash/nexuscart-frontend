@@ -36,6 +36,13 @@ export class PaymentInitiationResponseDto {
     description: 'Set once order creation has completed — immediately for direct-capture gateways (COD/mock), asynchronously via webhook for others',
   })
   orderId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    description: 'Customer-facing order number (e.g. ORD-2026-000123), set alongside orderId — show this, never the internal id',
+  })
+  orderNumber?: string | null;
 }
 
 export class PaymentStatusResponseDto {
@@ -47,6 +54,9 @@ export class PaymentStatusResponseDto {
 
   @ApiProperty({ nullable: true, type: String })
   orderId: string | null;
+
+  @ApiProperty({ nullable: true, type: String, description: 'Customer-facing order number, once the order exists' })
+  orderNumber: string | null;
 }
 
 export class PaymentDetailResponseDto {

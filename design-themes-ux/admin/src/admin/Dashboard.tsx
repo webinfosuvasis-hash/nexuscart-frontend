@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { Card, StatCard, PageHeader, Btn } from './ui';
 import { lowStock } from './data';
 import { useDashboardSummary, useRevenueTrend, useTopProducts, useTrafficSources } from '@/hooks/useAnalytics';
+import { formatMoney, formatMoneyCompact } from '@/lib/money';
+import { useStoreCurrency } from '@/hooks/useStoreCurrency';
 import { useOrderStats } from '@/hooks/useOrders';
 
 const PERIODS = ['7d', '30d', '90d', '1y'] as const;
@@ -35,13 +37,11 @@ const recentActivity = [
   { id: 6, icon: Package, color: 'text-cyan-500 bg-cyan-50 dark:bg-cyan-900/20', text: 'Product "Fitness Tracker" published', time: '5 hr ago', amount: null },
 ];
 
-const fmtCurrency = (n: number) =>
-  n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(2)}M` : n >= 1_000 ? `$${(n / 1_000).toFixed(1)}K` : `$${n.toFixed(0)}`;
-
 const fmtCount = (n: number) =>
   n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : String(n);
 
 const Dashboard: React.FC = () => {
+  const currency = useStoreCurrency();
   const [period, setPeriod] = useState<Period>('30d');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -59,10 +59,10 @@ const Dashboard: React.FC = () => {
   };
 
   const stats = [
-    { label: 'Total Revenue', value: summary ? fmtCurrency(summary.revenue.value) : '—', change: summary?.revenue.growth ?? 0, icon: DollarSign, accent: 'bg-indigo-600' },
+    { label: 'Total Revenue', value: summary ? formatMoneyCompact(summary.revenue.value, currency) : '—', change: summary?.revenue.growth ?? 0, icon: DollarSign, accent: 'bg-indigo-600' },
     { label: 'Orders', value: summary ? fmtCount(summary.orders.value) : '—', change: summary?.orders.growth ?? 0, icon: ShoppingCart, accent: 'bg-emerald-600' },
     { label: 'Customers', value: summary ? fmtCount(summary.customers.value) : '—', change: summary?.customers.growth ?? 0, icon: Users, accent: 'bg-violet-600' },
-    { label: 'Avg Order Value', value: summary ? `$${summary.avgOrderValue.value.toFixed(2)}` : '—', change: summary?.avgOrderValue.growth ?? 0, icon: TrendingUp, accent: 'bg-amber-500' },
+    { label: 'Avg Order Value', value: summary ? formatMoney(summary.avgOrderValue.value, currency) : '—', change: summary?.avgOrderValue.growth ?? 0, icon: TrendingUp, accent: 'bg-amber-500' },
     { label: 'Pending Orders', value: orderStats ? String(orderStats.pending) : '—', change: 0, icon: Clock, accent: 'bg-cyan-600' },
     { label: 'Shipped', value: orderStats ? String(orderStats.shipped) : '—', change: 0, icon: Package, accent: 'bg-blue-600' },
     { label: 'Delivered', value: orderStats ? String(orderStats.delivered) : '—', change: 0, icon: CheckCircle2, accent: 'bg-fuchsia-600' },
@@ -151,8 +151,8 @@ const Dashboard: React.FC = () => {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} formatter={(v: number) => [`$${v.toLocaleString()}`, 'Revenue']} />
+              <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={(v) => formatMoneyCompact(v, currency)} />
+              <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }} formatter={(v: number) => [formatMoney(v, currency, 0), 'Revenue']} />
               <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#4f46e5" strokeWidth={2.5} fill="url(#rev)" />
             </AreaChart>
           </ResponsiveContainer>

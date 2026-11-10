@@ -87,33 +87,3 @@ export const SEO: React.FC = () => (
     </Card>
   </div>
 );
-
-export const Marketplace: React.FC = () => (
-  <div>
-    <PageHeader title="Marketplace" subtitle="Multi-vendor management"
-      action={<Btn onClick={() => toast.success('Vendor invited')}>Invite Vendor</Btn>} />
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      {[['Active Vendors', '42', 'indigo'], ['Pending Approval', '8', 'amber'], ['Total Commission', '$18,420', 'emerald']].map(([l, v, c]) => (
-        <Card key={l} className="p-5"><p className="text-sm text-slate-500">{l}</p><p className={`text-2xl font-bold text-${c}-600 mt-1`}>{v}</p></Card>
-      ))}
-    </div>
-    <Card className="overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 dark:bg-slate-900/50 text-left text-slate-500">
-          <tr><th className="p-3 font-semibold">Vendor</th><th className="p-3 font-semibold">Products</th><th className="p-3 font-semibold">Sales</th><th className="p-3 font-semibold">Commission</th><th className="p-3 font-semibold">Status</th></tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-          {[['TechVibe Store', 84, '$42,300', '12%', 'Active'], ['Fashion Hub', 142, '$38,900', '15%', 'Active'], ['Home Essentials', 67, '$21,400', '10%', 'Pending']].map((v) => (
-            <tr key={v[0] as string} className="hover:bg-slate-50 dark:hover:bg-slate-700/40">
-              <td className="p-3 font-semibold text-slate-900 dark:text-white">{v[0] as string}</td>
-              <td className="p-3 text-slate-600 dark:text-slate-300">{v[1] as number}</td>
-              <td className="p-3 text-slate-600 dark:text-slate-300">{v[2] as string}</td>
-              <td className="p-3 font-medium text-slate-900 dark:text-white">{v[3] as string}</td>
-              <td className="p-3"><Badge status={v[4] as string} /></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </Card>
-  </div>
-);

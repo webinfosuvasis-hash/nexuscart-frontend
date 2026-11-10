@@ -7,13 +7,17 @@ import {
   Bold, Italic, Underline, List, AlignLeft, AlignCenter, AlignRight,
   Upload, Video, Star, Tag, Layers, RefreshCw,
   Calendar, Clock, Shield, ShoppingBag, CreditCard, Hash,
-  Move, RotateCcw, TrendingUp, BarChart3, Settings2,
+  Move, RotateCcw, TrendingUp, BarChart3, Settings2, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, Btn, Badge } from './ui';
 import { useCreateProduct, useUpdateProduct } from '@/hooks/useProducts';
 import { useFlatCategories } from '@/hooks/useCategories';
 import { useBrands } from '@/hooks/useBrands';
+import { useVendors } from '@/hooks/useVendors';
+import { parseJsonList } from '@/lib/jsonList';
+import ImageUpload from '@/components/ImageUpload';
+import { uploadImage } from '@/services/uploadService';
 import { useCollections } from '@/hooks/useCollections';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,7 +43,7 @@ interface ProductForm {
   visibility: 'published' | 'hidden' | 'members_only' | 'wholesale_only';
   publishAt: string; expiresAt: string;
   allowReviews: boolean; moderateReviews: boolean;
-  vendorId: string; vendorCommission: string;
+  vendorId: string;
 }
 
 interface VariantOption { id: string; name: string; values: string }
@@ -83,11 +87,6 @@ const MOCK_PRODUCTS = [
   { id: 'p4', name: 'Banarasi Silk Saree', price: 6999 },
   { id: 'p5', name: 'Cotton Embroidered Kurti', price: 899 },
   { id: 'p6', name: 'Matching Blouse', price: 499 },
-];
-
-const MOCK_VENDORS = [
-  { id: 'v1', name: 'Suta Boutique' }, { id: 'v2', name: 'Fabindia Store' },
-  { id: 'v3', name: 'W Flagship' },
 ];
 
 const BADGE_OPTIONS = ['New', 'Best Seller', 'Trending', 'Limited Stock', 'Exclusive', 'Sale'];
@@ -263,34 +262,45 @@ const OptionValueTags: React.FC<{
   );
 };
 
-// ─── Image Drop Zone ──────────────────────────────────────────────────────────
-const ImageDropZone: React.FC<{ label: string; hint?: string; value: string; onChange: (v: string) => void; large?: boolean }> = ({
-  label, hint, value, onChange, large,
-}) => (
-  <div
-    onClick={() => { onChange(`https://picsum.photos/seed/${Math.random().toString(36).slice(2)}/800/600`); toast.success('Image uploaded'); }}
-    className={`border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl cursor-pointer hover:border-indigo-400 transition-colors overflow-hidden group ${large ? 'aspect-video' : 'aspect-square'}`}
-  >
-    {value ? (
-      <div className="relative w-full h-full">
-        <img src={value} alt="preview" className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <p className="text-white text-xs font-medium">Click to replace</p>
-        </div>
-        <button onClick={(e) => { e.stopPropagation(); onChange(''); }}
-          className="absolute top-2 right-2 w-6 h-6 bg-black/60 hover:bg-red-500 text-white rounded-full flex items-center justify-center transition-colors">
-          <X size={12} />
-        </button>
-      </div>
-    ) : (
-      <div className="flex flex-col items-center justify-center w-full h-full p-4 text-center">
-        <Upload size={20} className="text-slate-400 mb-2" />
-        <p className="text-xs font-medium text-slate-600 dark:text-slate-400">{label}</p>
-        {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
-      </div>
-    )}
-  </div>
-);
+// ─── Gallery "Add" tile — real file upload (multi-select) ─────────────────────
+const GalleryAddTile: React.FC<{ onAdd: (urls: string[]) => void }> = ({ onAdd }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFiles = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    const results = await Promise.allSettled(files.map((f) => uploadImage(f)));
+    setUploading(false);
+    const urls = results.flatMap((r) => (r.status === 'fulfilled' && r.value ? [r.value] : []));
+    const failed = results.length - urls.length;
+    if (urls.length) { onAdd(urls); toast.success(`${urls.length} image${urls.length > 1 ? 's' : ''} added to gallery`); }
+    if (failed) toast.error(`${failed} upload${failed > 1 ? 's' : ''} failed`);
+  };
+
+  return (
+    <button
+      type="button"
+      disabled={uploading}
+      onClick={() => inputRef.current?.click()}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); handleFiles(Array.from(e.dataTransfer.files ?? [])); }}
+      className="aspect-square border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center hover:border-indigo-400 transition-colors cursor-pointer disabled:cursor-wait">
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => { handleFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }}
+      />
+      {uploading
+        ? <Loader2 size={20} className="text-indigo-500 animate-spin" />
+        : <Plus size={20} className="text-slate-400" />}
+      <p className="text-xs text-slate-400 mt-1">{uploading ? 'Uploading…' : 'Add'}</p>
+    </button>
+  );
+};
 
 // ─── Toggle Switch ────────────────────────────────────────────────────────────
 const Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string }> = ({ checked, onChange, label, hint }) => (
@@ -365,7 +375,7 @@ const DEFAULT_FORM: ProductForm = {
   visibility: 'published',
   publishAt: '', expiresAt: '',
   allowReviews: true, moderateReviews: false,
-  vendorId: '', vendorCommission: '15',
+  vendorId: '',
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -378,6 +388,7 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
   const { data: flatCatsData } = useFlatCategories();
   const { data: brandsData } = useBrands();
   const { data: collectionsData } = useCollections();
+  const { data: vendors = [], isLoading: vendorsLoading, isError: vendorsError, refetch: refetchVendors } = useVendors();
 
   const flatCats = flatCatsData ?? [];
   const brands: { id: string; name: string }[] = Array.isArray(brandsData)
@@ -392,9 +403,10 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
     ...p,
     categoryIds: Array.isArray(p.categoryIds) ? p.categoryIds : p.categoryId ? [p.categoryId] : [],
     collectionIds: Array.isArray(p.collectionIds) ? p.collectionIds : [],
-    tags: Array.isArray(p.tags) ? p.tags : [],
-    badges: Array.isArray(p.badges) ? p.badges : [],
-    gallery: Array.isArray(p.gallery) ? p.gallery : (Array.isArray(p.images) ? p.images.map((url: string) => ({ url, alt: '' })) : []),
+    // tags/badges/images arrive as JSON array strings (LongText columns)
+    tags: parseJsonList(p.tags),
+    badges: parseJsonList(p.badges),
+    gallery: Array.isArray(p.gallery) ? p.gallery : parseJsonList(p.images).map((url) => ({ url, alt: '' })),
     relatedProductIds: Array.isArray(p.relatedProductIds) ? p.relatedProductIds : [],
     crossSellIds: Array.isArray(p.crossSellIds) ? p.crossSellIds : [],
     upsellIds: Array.isArray(p.upsellIds) ? p.upsellIds : [],
@@ -423,7 +435,6 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
     priceIncludesTax: p.priceIncludesTax ?? false,
     countryOfOrigin: p.countryOfOrigin ?? 'IN',
     vendorId: p.vendorId ?? '',
-    vendorCommission: p.vendorCommission != null ? String(p.vendorCommission) : '15',
     publishAt: p.publishAt ?? '',
     expiresAt: p.expiresAt ?? '',
     status: (p.status ?? 'DRAFT').toLowerCase() as any,
@@ -706,11 +717,14 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
       lowStockThreshold: form.lowStockAlert ? parseInt(form.lowStockAlert, 10) : 5,
       trackInventory: form.trackInventory,
       allowBackorders: form.allowBackorders,
-      thumbnail: form.featuredImage || undefined,
+      // On edit, null clears a removed image (undefined would leave the old one in place)
+      thumbnail: form.featuredImage || (isEdit ? null : undefined),
       images: form.gallery.map((g) => g.url),
       // Backend takes single categoryId — use first selected
       categoryId: form.categoryIds[0] || undefined,
       brandId: form.brandId || undefined,
+      // null = unassigned (own inventory); the backend checks the vendor belongs to this store
+      vendorId: form.vendorId || null,
       tags: form.tags,
       badges: form.badges,
       status: resolvedStatus,
@@ -933,7 +947,7 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
         {/* Featured Image */}
         <Card className="p-5 lg:col-span-1">
           <SectionHeader title="Featured Image" subtitle="Main product image (1:1 ratio recommended)" />
-          <ImageDropZone label="Click to upload" hint="JPG, PNG, WebP — max 5MB" value={form.featuredImage} onChange={(v) => set('featuredImage', v)} large />
+          <ImageUpload label="Click or drag to upload" hint="JPG, PNG, WebP — max 5MB" value={form.featuredImage} onChange={(v) => set('featuredImage', v)} aspectClass="aspect-square" />
           {form.featuredImage && (
             <div className="mt-3">
               <Label>Alt Text</Label>
@@ -958,16 +972,7 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
                 </div>
               </div>
             ))}
-            <button
-              onClick={() => {
-                const url = `https://picsum.photos/seed/${Math.random().toString(36).slice(2)}/600/600`;
-                set('gallery', [...form.gallery, { url, alt: '' }]);
-                toast.success('Image added to gallery');
-              }}
-              className="aspect-square border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center hover:border-indigo-400 transition-colors cursor-pointer">
-              <Plus size={20} className="text-slate-400" />
-              <p className="text-xs text-slate-400 mt-1">Add</p>
-            </button>
+            <GalleryAddTile onAdd={(urls) => setForm((f) => ({ ...f, gallery: [...f.gallery, ...urls.map((url) => ({ url, alt: '' }))] }))} />
           </div>
           {form.gallery.length > 1 && (
             <p className="text-xs text-slate-400 mt-2 flex items-center gap-1"><Move size={11} /> Drag images to reorder</p>
@@ -1839,25 +1844,43 @@ const CreateProduct: React.FC<{ onBack: () => void; product?: any }> = ({ onBack
       {/* Vendor */}
       <Card className="p-5">
         <SectionHeader title="Vendor / Marketplace" subtitle="Assign this product to a marketplace seller" />
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <Label>Vendor</Label>
-            <Select value={form.vendorId} onChange={(e) => set('vendorId', e.target.value)}>
-              <option value="">No vendor (own inventory)</option>
-              {MOCK_VENDORS.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </Select>
-          </div>
-          <div>
-            <Label>Commission %</Label>
-            <Input type="number" value={form.vendorCommission} onChange={(e) => set('vendorCommission', e.target.value)}
-              suffix="%" placeholder="15" disabled={!form.vendorId} />
-          </div>
+        <div className="max-w-md">
+          <Label>Vendor</Label>
+          <Select value={form.vendorId} onChange={(e) => set('vendorId', e.target.value)} disabled={vendorsLoading}>
+            <option value="">{vendorsLoading ? 'Loading vendors…' : 'No vendor (own inventory)'}</option>
+            {vendors.map((v) => (
+              // Inactive vendors can't be newly assigned; one already on this product stays selectable.
+              <option key={v.id} value={v.id} disabled={v.status !== 'ACTIVE' && v.id !== product?.vendorId}>
+                {v.name}{v.status !== 'ACTIVE' ? ' (inactive)' : ''}
+              </option>
+            ))}
+            {/* Keep the saved assignment visible even if the list failed to load */}
+            {form.vendorId && product?.vendor && !vendors.some((v) => v.id === form.vendorId) && (
+              <option value={product.vendor.id}>{product.vendor.name}</option>
+            )}
+          </Select>
+          {vendorsError && (
+            <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+              Couldn't load vendors.{' '}
+              <button type="button" className="underline" onClick={() => refetchVendors()}>Retry</button>
+            </p>
+          )}
+          {!vendorsLoading && !vendorsError && vendors.length === 0 && (
+            <p className="mt-2 text-xs text-slate-500">No vendors in this store yet — the product will be sold as your own inventory.</p>
+          )}
+          {form.vendorId && vendors.find((v) => v.id === form.vendorId)?.status === 'INACTIVE' && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              This vendor is inactive: the assignment is kept, but they won't receive order emails.
+            </p>
+          )}
+          {form.vendorId && vendors.find((v) => v.id === form.vendorId)?.status === 'ACTIVE' && (
+            <p className="mt-2 text-xs text-slate-500">
+              {vendors.find((v) => v.id === form.vendorId)?.notifyOnOrder
+                ? 'The vendor is emailed their items on each new order.'
+                : 'Order emails are turned off for this vendor.'}
+            </p>
+          )}
         </div>
-        {form.vendorId && (
-          <div className="mt-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-700 dark:text-emerald-400">
-            Vendor earns {100 - parseFloat(form.vendorCommission || '0')}% of each sale. Platform fee: {form.vendorCommission || '0'}%
-          </div>
-        )}
       </Card>
     </div>
   );

@@ -88,7 +88,7 @@ export interface CheckoutSessionResponseDto {
   storeId:                string;
   cartId:                 string;
   cartVersion:            number;
-  sessionId:              string;
+  // No sessionId: it is the HttpOnly cart cookie's bearer value and must never reach page scripts.
   customerId:             string | null;
   status:                 CheckoutStatus;
   addresses:              CheckoutAddressDto[];

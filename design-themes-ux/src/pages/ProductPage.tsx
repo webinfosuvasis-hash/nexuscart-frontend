@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useParams } from 'react-router-dom';
-import { PRODUCTS, ThemeKey } from '@/data/products';
-import { useStore } from '@/context/StoreContext';
+import { PRODUCTS } from '@/data/products';
 // import ThemeSwitcher from '@/components/ThemeSwitcher';
 import CraftProduct from '@/themes/CraftProduct';
 import JewelProduct from '@/themes/JewelProduct';
@@ -24,17 +23,9 @@ interface PageMeta { title: string; description?: string; canonical: string; ima
  */
 const ProductPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { theme, setTheme } = useStore();
 
   const all = Object.values(PRODUCTS).flat();
   const staticProduct = all.find(p => p.id === id);
-
-  // Sync theme to the product's brand universe without mutating during render
-  useEffect(() => {
-    if (staticProduct && staticProduct.theme !== theme) {
-      setTheme(staticProduct.theme as ThemeKey);
-    }
-  }, [staticProduct?.theme]);
 
   const [meta, setMeta] = useState<PageMeta>({ title: 'Aurus', canonical: '/' });
   const onMetaChange = useCallback((m: PageMeta) => setMeta(m), []);

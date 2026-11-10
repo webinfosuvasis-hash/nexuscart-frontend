@@ -2,10 +2,15 @@ import {
   Injectable, NotFoundException, BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
+import { CacheService } from '@/shared/cache/cache.service';
+import { CACHE_KEYS } from '@/shared/cache/cache.constants';
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache:  CacheService,
+  ) {}
 
   async listPlans() {
     return this.prisma.plan.findMany({
@@ -43,7 +48,7 @@ export class SubscriptionsService {
     const periodEnd = new Date();
     periodEnd.setMonth(periodEnd.getMonth() + (billingCycle === 'YEARLY' ? 12 : 1));
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const sub = await tx.subscription.upsert({
         where: { storeId },
         create: {
@@ -84,6 +89,8 @@ export class SubscriptionsService {
 
       return sub;
     });
+    await this.cache.del(CACHE_KEYS.storeContext(storeId));
+    return result;
   }
 
   async cancel(storeId: string, cancelImmediately = false) {

@@ -12,6 +12,7 @@ import { CheckoutEngineService } from './engine/checkout-engine.service';
 import { CheckoutEventBus } from './events/checkout-event-bus.service';
 import { CHECKOUT_ADDRESS_VALIDATOR } from './engines/checkout-engine-tokens';
 import { PrismaService } from '../../prisma/prisma.service';
+import { InventoryReservationService } from '../../shared/inventory/inventory-reservation.service';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +50,8 @@ const engineOutput = {
 
 const mockEngine  = () => ({ run: jest.fn().mockResolvedValue(engineOutput) });
 const mockBus     = () => ({ emit: jest.fn() });
+const mockReservations = () => ({ releaseForCheckout: jest.fn().mockResolvedValue(0) });
+let reservations: ReturnType<typeof mockReservations>;
 const mockAddr    = () => ({ validate: jest.fn().mockResolvedValue({ isValid: true, errors: [] }) });
 const mockConfig  = () => ({
   get: jest.fn().mockReturnValue({ sessionTimeoutMinutes: 30, debugMode: false, freeShippingThreshold: 999, storeStateCode: 'KA' }),
@@ -103,6 +106,7 @@ describe('CheckoutService.startCheckout', () => {
   let bus:     ReturnType<typeof mockBus>;
 
   beforeEach(async () => {
+    reservations = mockReservations();
     prisma = mockPrisma();
     engine = mockEngine();
     bus    = mockBus();
@@ -115,6 +119,7 @@ describe('CheckoutService.startCheckout', () => {
         { provide: CheckoutEventBus,         useValue: bus },
         { provide: ConfigService,            useValue: mockConfig() },
         { provide: CHECKOUT_ADDRESS_VALIDATOR, useValue: mockAddr() },
+        { provide: InventoryReservationService, useValue: reservations },
       ],
     }).compile();
 
@@ -249,5 +254,80 @@ describe('CheckoutService.startCheckout', () => {
       .mockResolvedValueOnce(null);  // no LOCKED
 
     await expect(service.startCheckout(baseReq())).rejects.toThrow(NotFoundException);
+  });
+});
+
+// ─── Checkout ownership (cart session) ──────────────────────────────────────
+
+describe('CheckoutService — a checkout id alone is not authorization', () => {
+  let service: CheckoutService;
+  let prisma:  ReturnType<typeof mockPrisma>;
+
+  const OTHER_SESSION = 'ffffeeeeddddccccffffeeeeddddcccc';
+
+  beforeEach(async () => {
+    reservations = mockReservations();
+    prisma = mockPrisma();
+    // Behaves like the DB: the checkout matches only its own store + session.
+    prisma.checkoutSession.findFirst.mockImplementation(async ({ where }: any) =>
+      where.id === CO_ID && where.storeId === STORE && (where.sessionId === undefined || where.sessionId === SESSION)
+        ? { ...baseCheckout(), addresses: [{ type: 'SHIPPING', email: 'asha@example.com' }] }
+        : null);
+    prisma.cart.findFirst.mockResolvedValue(baseCart(CartStatus.LOCKED));
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        CheckoutService,
+        { provide: PrismaService,            useValue: prisma },
+        { provide: CheckoutEngineService,    useValue: mockEngine() },
+        { provide: CheckoutEventBus,         useValue: mockBus() },
+        { provide: ConfigService,            useValue: mockConfig() },
+        { provide: CHECKOUT_ADDRESS_VALIDATOR, useValue: mockAddr() },
+        { provide: InventoryReservationService, useValue: reservations },
+      ],
+    }).compile();
+
+    service = module.get(CheckoutService);
+  });
+
+  const foreignReq = () => baseReq({ cartSessionId: OTHER_SESSION });
+
+  it('lets the owning session read its checkout', async () => {
+    const res = await service.getCheckout(CO_ID, baseReq());
+    expect(res.id).toBe(CO_ID);
+    expect(prisma.checkoutSession.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: CO_ID, storeId: STORE, sessionId: SESSION },
+    }));
+  });
+
+  it.each([
+    ['read it (contact details + session id)', (s: CheckoutService) => s.getCheckout(CO_ID, foreignReq())],
+    ['read its summary',                      (s: CheckoutService) => s.getSummary(CO_ID, foreignReq())],
+    ['read its activity log',                 (s: CheckoutService) => s.getActivity(CO_ID, foreignReq())],
+    ['validate it',                           (s: CheckoutService) => s.validateCheckout(CO_ID, foreignReq())],
+    ['cancel it',                             (s: CheckoutService) => s.cancelCheckout(CO_ID, foreignReq())],
+    ['change its shipping method',            (s: CheckoutService) => s.updateShipping(CO_ID, { shippingMethodId: 'standard' } as any, foreignReq())],
+    ['change its delivery address',           (s: CheckoutService) => s.updateAddress(CO_ID, { shippingAddress: {} } as any, foreignReq())],
+  ])('404s when another session tries to %s', async (_label, call) => {
+    await expect(call(service)).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.checkoutSession.update).not.toHaveBeenCalled();
+    expect(reservations.releaseForCheckout).not.toHaveBeenCalled();
+    expect(prisma.checkoutAddressSnapshot.create).not.toHaveBeenCalled();
+    expect(prisma.cart.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('cancel by the owning session returns the stock held for its payment attempts', async () => {
+    prisma.checkoutSession.update.mockResolvedValue({ ...baseCheckout(), status: CheckoutStatus.CANCELLED });
+    prisma.cart.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.cancelCheckout(CO_ID, baseReq());
+
+    expect(reservations.releaseForCheckout).toHaveBeenCalledWith(CO_ID, STORE);
+  });
+
+  it('getSummaryForVerifiedOwner (payment service only) is store-scoped, not session-scoped', async () => {
+    const res = await service.getSummaryForVerifiedOwner(CO_ID, STORE);
+    expect(res.id).toBe(CO_ID);
+    await expect(service.getSummaryForVerifiedOwner(CO_ID, 'other-store')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

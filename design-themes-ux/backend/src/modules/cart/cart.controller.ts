@@ -7,11 +7,12 @@ import {
   Body,
   Param,
   Req,
+  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { CartService } from './cart.service';
@@ -20,6 +21,7 @@ import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { MergeCartDto } from './dto/merge-cart.dto';
 import { ApplyPromotionDto } from './dto/apply-promotion.dto';
+import { CartSessionMiddleware } from './middleware/cart-session.middleware';
 
 @Public()
 @Controller('cart')
@@ -99,5 +101,16 @@ export class CartController {
   @Get('activity')
   getActivity(@Req() req: Request) {
     return this.cartService.getActivity(req);
+  }
+
+  /**
+   * Called by the storefront on logout: this browser gets a new, empty cart
+   * session, so the next person on a shared device can't see or check out
+   * the previous shopper's bag, address or in-progress checkout.
+   */
+  @Post('session/rotate')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  rotateSession(@Req() req: Request, @Res({ passthrough: true }) res: Response): void {
+    CartSessionMiddleware.rotate(req, res);
   }
 }

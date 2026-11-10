@@ -56,7 +56,7 @@ describe('CustomerPaymentController', () => {
   });
 
   it('getStatus() delegates with the guard-resolved customer and payment id param', async () => {
-    service.getPaymentStatus.mockResolvedValue({ id: PAYMENT_ID, status: PaymentTxStatus.CAPTURED, orderId: 'order_1' });
+    service.getPaymentStatus.mockResolvedValue({ id: PAYMENT_ID, status: PaymentTxStatus.CAPTURED, orderId: 'order_1', orderNumber: 'ORD-2026-000001' });
 
     const result = await controller.getStatus(AUTHENTICATED_CUSTOMER, PAYMENT_ID);
 
